@@ -1,0 +1,23 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.0] - 2026-07-24
+
+Initial release.
+
+### Added
+
+- Expose Shelly Gen 2/3 relays and plugs to Apple Home over Matter via the Homebridge 2.2 Matter API.
+- Live power, voltage, current and cumulative energy through the Matter ElectricalPowerMeasurement / ElectricalEnergyMeasurement clusters, shown on Apple Home tiles and in the Energy view on iOS/tvOS 27+.
+- Per-device and per-channel accessory types (light / outlet / switch) with kind-based defaults, friendly names, and hide toggles — all in a single `devices` configuration array.
+- Multi-channel devices exposed as composed Matter bridged nodes, one endpoint per channel; accessory identity rotates cleanly when a type or composition changes.
+- Settings GUI with mDNS auto-discovery, manual host entry for devices mDNS cannot reach, and a "Connected controllers" list showing the Matter fabrics (e.g. Apple Home, Apple Keychain) commissioned on the bridge.
+- Shelly protocol layer (CoIoT for Gen 1, WebSocket RPC for Gen 2+, mDNS discovery, password-protected device support) vendored from [matterbridge-shelly](https://github.com/Luligu/matterbridge-shelly) by Luca Liguori (Apache-2.0) — see `NOTICE`.
+
+### Known issues
+
+- Requires Homebridge core Matter fixes that are not yet in a released Homebridge (composed-accessory FixedLabel/PowerSource, deferred node start). Without them, Apple Home stops responding to controls ~30 seconds after pairing. See the "Known issues" section in the README for the tracking pull requests.

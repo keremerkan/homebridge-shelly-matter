@@ -1,0 +1,38 @@
+--- /var/lib/homebridge/node_modules/homebridge/dist/matter/server/AccessoryManager.js.bak-pretag	2026-07-23 13:23:52.415233532 +0300
++++ /var/lib/homebridge/node_modules/homebridge/dist/matter/server/AccessoryManager.js	2026-07-23 13:23:52.431233600 +0300
+@@ -6,6 +6,7 @@
+  * and restoring cached state.
+  */
+ import { EventEmitter } from 'node:events';
++import { createHash } from 'node:crypto';
+ import process from 'node:process';
+ import { Endpoint } from '@matter/main';
+ import { BasicInformationServer, BridgedDeviceBasicInformationServer, DescriptorServer } from '@matter/main/behaviors';
+@@ -467,6 +468,11 @@
+                     || accessory.model || 'Device',
+                 serialNumber: accessory.serialNumber,
+                 reachable: true,
++                // matter.js otherwise fills uniqueId with a random string
++                // persisted only in its own storage; controllers key bridged
++                // accessory identity on it. Derive it from the accessory UUID
++                // so the same registration always yields the same identity.
++                uniqueId: createHash('md5').update(accessory.UUID).digest('hex'),
+             };
+         }
+         return endpointOptions;
+@@ -531,8 +537,15 @@
+                 applyElectricalMeasurementDefaults(part, partElectrical);
+                 partDeviceType = applyElectricalMeasurementClusters(partDeviceType, part, partElectrical);
+             }
++            // Tag each child with a semantic Number tag so controllers can
++            // stably re-map otherwise-identical children of a composed device;
++            // without it they are distinguishable only by transient endpoint
++            // number, which Apple Home mishandles across hub changes.
++            const partIndex = accessory.parts.indexOf(part);
++            partDeviceType = partDeviceType.with(DescriptorServer.with('TagList'));
+             const partEndpointOptions = {
+                 id: partEndpointId,
++                descriptor: { tagList: [{ mfgCode: null, namespaceId: 7, tag: partIndex, label: (part.displayName || part.id).slice(0, 64) }] },
+                 ...part.clusters,
+             };
+             const partEndpoint = new Endpoint(partDeviceType, partEndpointOptions);

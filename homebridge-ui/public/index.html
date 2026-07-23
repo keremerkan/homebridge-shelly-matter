@@ -1,0 +1,209 @@
+<div id="shelly-panel" style="margin-bottom: 1rem;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+    <h5 style="margin: 0;">Shelly devices</h5>
+    <button id="scan-btn" class="btn btn-primary btn-sm" type="button">Scan network</button>
+  </div>
+  <div id="scan-status" class="text-muted" style="font-size: 0.85rem;">
+    Loading devices seen by the plugin...
+  </div>
+  <div id="device-table"></div>
+
+  <div style="margin-top: 1.25rem;">
+    <h5 style="margin: 0 0 0.5rem;">Connected controllers</h5>
+    <div id="fabric-list" class="text-muted" style="font-size: 0.85rem;">Loading…</div>
+  </div>
+</div>
+
+<script>
+  (async () => {
+    const ACCESSORY_TYPES = ['light', 'outlet', 'switch'];
+    const LABELS = { light: 'Light', outlet: 'Outlet', switch: 'Switch' };
+    let pluginConfig = [];
+    let config = {};
+    let devices = [];
+
+    const entries = () => (Array.isArray(config.devices) ? config.devices.filter((e) => e && typeof e === 'object') : []);
+    const entryFor = (deviceId, host) => entries().find((e) => e.device === deviceId) ?? (host ? entries().find((e) => !e.device && e.host === host) : undefined);
+    const channelFor = (entry, channel) => (Array.isArray(entry?.channels) ? entry.channels.find((c) => c && c.channel === channel) : undefined);
+    const defaultAccessoryType = (deviceId) => (deviceId.includes('plug') ? 'outlet' : 'light');
+    const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+    // Same resolution as the plugin: channel setting, then device setting, then kind default.
+    function effectiveAccessoryType(device, channel) {
+      const entry = entryFor(device.id, device.host);
+      if (channel !== undefined) {
+        const channelEntry = channelFor(entry, channel);
+        if (ACCESSORY_TYPES.includes(channelEntry?.accessoryType)) return channelEntry.accessoryType;
+      }
+      if (ACCESSORY_TYPES.includes(entry?.accessoryType)) return entry.accessoryType;
+      return defaultAccessoryType(device.id);
+    }
+
+    // Rebuild config.devices from the table - one entry per physical device,
+    // channels nested - preserving entries for devices not in this listing.
+    async function applySelections() {
+      const listedIds = new Set(devices.map((d) => d.id));
+      const listedHosts = new Set(devices.map((d) => d.host));
+      const kept = entries().filter((e) => {
+        if (e.device && listedIds.has(e.device)) return false;
+        if (!e.device && e.host && listedHosts.has(e.host)) return false;
+        return true;
+      });
+
+      const rebuilt = [...kept];
+      for (const device of devices) {
+        const prior = entryFor(device.id, device.host);
+        // Always record the current IP so the plugin keeps working if mDNS
+        // discovery is disabled later; with mDNS on it is harmlessly redundant.
+        const entry = { device: device.id, host: device.host || prior?.host };
+        if (!entry.host) delete entry.host;
+
+        const nameInput = document.querySelector(`input[data-name-entry="${device.id}"]`);
+        if (nameInput?.value.trim()) entry.name = nameInput.value.trim();
+        // Write the type explicitly (even when it matches the default) so the
+        // devices list in the schema form shows the effective value, not blank.
+        // Multi-channel devices carry no parent type - each channel has its own.
+        const select = document.querySelector(`select[data-entry="${device.id}"]`);
+        if (select) entry.accessoryType = select.value;
+        // Power metering is configured in the devices list below, not in this table - carry it over.
+        if (prior?.powerMetering === false) entry.powerMetering = false;
+        if (document.querySelector(`input[data-hide="${device.id}"]`)?.checked) entry.hidden = true;
+
+        const channels = [];
+        for (const channelSelect of document.querySelectorAll(`select[data-entry^="${device.id}:"]`)) {
+          const channel = Number(channelSelect.dataset.entry.split(':').pop());
+          const channelEntry = { channel, accessoryType: channelSelect.value };
+          if (document.querySelector(`input[data-hide="${device.id}:${channel}"]`)?.checked) channelEntry.hidden = true;
+          channels.push(channelEntry);
+        }
+        if (channels.length > 0) entry.channels = channels;
+        rebuilt.push(entry);
+      }
+
+      if (rebuilt.length > 0) config.devices = rebuilt;
+      else delete config.devices;
+
+      homebridge.hideSchemaForm();
+      await homebridge.updatePluginConfig(pluginConfig);
+      homebridge.showSchemaForm();
+    }
+
+    function selectHtml(device, channel) {
+      const current = effectiveAccessoryType(device, channel);
+      const key = channel === undefined ? device.id : `${device.id}:${channel}`;
+      const options = ACCESSORY_TYPES.map((t) => {
+        const label = LABELS[t] + (t === defaultAccessoryType(device.id) ? ' (default)' : '');
+        return `<option value="${t}" ${current === t ? 'selected' : ''}>${label}</option>`;
+      }).join('');
+      return `<select class="custom-select custom-select-sm" data-entry="${key}">${options}</select>`;
+    }
+
+    function nameInputHtml(device, channel) {
+      const entry = entryFor(device.id, device.host);
+      const name = (channel === undefined ? entry?.name : channelFor(entry, channel)?.name) ?? '';
+      const key = channel === undefined ? device.id : `${device.id}:${channel}`;
+      return `<input type="text" class="form-control form-control-sm" data-name-entry="${key}" value="${escapeAttr(name)}" placeholder="e.g. Office Ceiling">`;
+    }
+
+    function render() {
+      const rows = [];
+      for (const device of devices) {
+        const label = device.name && device.name !== device.id ? `${device.name} <span class="text-muted">(${device.id})</span>` : device.id;
+        const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).join(' · ');
+        const multi = device.channels > 1;
+        const span = multi ? device.channels + 1 : 1;
+        rows.push(`
+          <tr>
+            <td rowspan="${span}" style="vertical-align: middle;">
+              ${label}<br><span class="text-muted" style="font-size: 0.8rem;">${detail}</span>
+            </td>
+            <td>${multi ? 'device' : ''}</td>
+            <td>${nameInputHtml(device)}</td>
+            <td>${multi ? '<span class="text-muted">per channel</span>' : selectHtml(device)}</td>
+            <td style="text-align: center;"><input type="checkbox" data-hide="${device.id}" ${entryFor(device.id, device.host)?.hidden === true ? 'checked' : ''}></td>
+          </tr>
+          ${multi
+            ? Array.from({ length: device.channels }, (_, i) => {
+                const hidden = channelFor(entryFor(device.id, device.host), i)?.hidden === true;
+                return `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(device, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${device.id}:${i}" ${hidden ? 'checked' : ''}></td></tr>`;
+              }).join('')
+            : ''}
+        `);
+      }
+      document.getElementById('device-table').innerHTML = `
+        <table class="table table-sm" style="margin-top: 0.5rem;">
+          <thead><tr><th>Device</th><th></th><th>Name</th><th>Accessory type</th><th>Hide</th></tr></thead>
+          <tbody>${rows.join('')}</tbody>
+        </table>`;
+      for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-hide]')) {
+        el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
+      }
+    }
+
+    const status = document.getElementById('scan-status');
+
+    function showDevices(source) {
+      if (devices.length) {
+        status.textContent = `${devices.length} device(s) ${source}. Changes are applied to the config immediately - press Save when done.`;
+        render();
+      } else {
+        status.textContent = source === 'known by the plugin'
+          ? 'No devices seen by the plugin yet. Make sure the plugin has run, or press Scan network.'
+          : 'No devices found. Check that the Homebridge host is on the same network as your Shellys.';
+      }
+    }
+
+    async function loadKnown() {
+      try {
+        devices = await homebridge.request('/devices');
+        showDevices('known by the plugin');
+      } catch (error) {
+        status.textContent = `Could not load devices: ${error.message}`;
+      }
+    }
+
+    async function scan() {
+      const button = document.getElementById('scan-btn');
+      button.disabled = true;
+      status.textContent = 'Scanning for Shelly devices (a few seconds)...';
+      try {
+        devices = await homebridge.request('/scan');
+        showDevices('found');
+      } catch (error) {
+        status.textContent = `Scan failed: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function loadFabrics() {
+      const el = document.getElementById('fabric-list');
+      try {
+        const fabrics = await homebridge.request('/fabrics');
+        if (!fabrics.length) {
+          el.textContent = 'The bridge is not paired to any controller yet.';
+          return;
+        }
+        const rows = fabrics.map((f) => `
+          <tr>
+            <td>${f.vendor}${f.label ? ` <span class="text-muted">(${escapeAttr(f.label)})</span>` : ''}</td>
+            <td class="text-muted" style="font-size: 0.8rem;">fabric ${f.index} · id ${f.fabricId}</td>
+          </tr>`).join('');
+        el.innerHTML = `<table class="table table-sm" style="margin: 0;"><tbody>${rows}</tbody></table>
+          <span class="text-muted">${fabrics.length} controller(s) connected. Remove a bridge from a controller's app to revoke its access.</span>`;
+      } catch (error) {
+        el.textContent = `Could not read controllers: ${error.message}`;
+      }
+    }
+
+    pluginConfig = await homebridge.getPluginConfig();
+    if (!pluginConfig.length) {
+      pluginConfig = [{ platform: 'ShellyMatter', name: 'ShellyMatter' }];
+      await homebridge.updatePluginConfig(pluginConfig);
+    }
+    config = pluginConfig[0];
+    document.getElementById('scan-btn').addEventListener('click', scan);
+    homebridge.showSchemaForm();
+    await Promise.all([loadKnown(), loadFabrics()]);
+  })().catch((error) => homebridge.toast.error(error.message, 'ShellyMatter UI'));
+</script>

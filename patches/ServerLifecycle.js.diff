@@ -1,0 +1,16 @@
+--- /var/lib/homebridge/node_modules/homebridge/dist/matter/server/ServerLifecycle.js.orig	2026-07-21 22:52:57.513129976 +0300
++++ /var/lib/homebridge/node_modules/homebridge/dist/matter/server/ServerLifecycle.js	2026-07-21 22:52:57.525130026 +0300
+@@ -279,6 +279,13 @@
+             process.on('SIGINT', shutdownHandler);
+             process.on('SIGTERM', shutdownHandler);
+             if (!deps.config.externalAccessory) {
++                // HOMEBRIDGE PATCH (shelly-matter): restore cached accessories into
++                // the aggregator BEFORE going online - a commissioned controller
++                // resubscribes within the first second and treats missing endpoints
++                // as removed devices.
++                if (deps.restoreAccessoriesFromCache) {
++                    await deps.restoreAccessoriesFromCache();
++                }
+                 await this.startServerNode(serverNode, deps);
+             }
+             else {

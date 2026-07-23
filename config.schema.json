@@ -1,0 +1,129 @@
+{
+  "pluginAlias": "ShellyMatter",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "customUiPath": "./homebridge-ui",
+  "headerDisplay": "Exposes Shelly devices to Apple Home over Matter, including live power and energy metering (iOS 27+). Requires Homebridge v2.2.0+ with Matter enabled on the bridge.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "ShellyMatter",
+        "required": true
+      },
+      "mdnsDiscover": {
+        "title": "Discover devices via mDNS",
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically discover Shelly devices on the local network."
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "description": "Per-device configuration. Discovered devices appear in the table above; add a device manually only when mDNS cannot find it (set its IP address). By default plugs are shown as outlets and other devices as lights, with power metering enabled where available.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "device": {
+              "title": "Device id",
+              "type": "string"
+            },
+            "host": {
+              "title": "IP address or hostname (filled automatically for discovered devices; lets the plugin work without mDNS)",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name shown in the Home app",
+              "type": "string"
+            },
+            "accessoryType": {
+              "title": "Accessory type",
+              "type": "string",
+              "required": true,
+              "default": "light",
+              "oneOf": [
+                { "title": "Light", "enum": ["light"] },
+                { "title": "Outlet", "enum": ["outlet"] },
+                { "title": "Switch", "enum": ["switch"] }
+              ]
+            },
+            "hidden": {
+              "title": "Hide (do not expose to Matter)",
+              "type": "boolean",
+              "default": false
+            },
+            "powerMetering": {
+              "title": "Power metering (if available on device)",
+              "type": "boolean",
+              "default": true
+            },
+            "channels": {
+              "title": "Channels (multi-channel devices only)",
+              "type": "array",
+              "description": "Per-channel settings; channels without an entry use the device settings. Channel numbers are 0-based, as on the device.",
+              "condition": {
+                "functionBody": "try { const c = model.devices[arrayIndices[0]].channels; return Array.isArray(c) && c.length > 1; } catch (e) { return false; }"
+              },
+              "items": {
+                "type": "object",
+                "properties": {
+                  "channel": {
+                    "title": "Channel (0-based)",
+                    "type": "integer",
+                    "required": true,
+                    "minimum": 0
+                  },
+                  "name": {
+                    "title": "Name shown in the Home app",
+                    "type": "string"
+                  },
+                  "accessoryType": {
+                    "title": "Accessory type",
+                    "type": "string",
+                    "required": true,
+                    "default": "light",
+                    "oneOf": [
+                      { "title": "Light", "enum": ["light"] },
+                      { "title": "Outlet", "enum": ["outlet"] },
+                      { "title": "Switch", "enum": ["switch"] }
+                    ]
+                  },
+                  "hidden": {
+                    "title": "Hide (do not expose to Matter)",
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "username": {
+        "title": "Username",
+        "type": "string",
+        "placeholder": "admin",
+        "description": "Username for password-protected Gen 1 devices. Gen 2+ devices always use 'admin'."
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "description": "Password for password-protected devices."
+      },
+      "interfaceName": {
+        "title": "Network interface",
+        "type": "string",
+        "description": "Optional network interface to use for mDNS discovery (e.g. eth0)."
+      },
+      "debug": {
+        "title": "Debug logging",
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "required": ["name"]
+  }
+}

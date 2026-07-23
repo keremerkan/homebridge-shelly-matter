@@ -1,0 +1,274 @@
+From baed455b65a83448e36da47fdad65d23422c669e Mon Sep 17 00:00:00 2001
+From: Kerem Erkan <kerem@ake.dev>
+Date: Wed, 22 Jul 2026 00:45:33 +0300
+Subject: [PATCH] fix(matter): restore cached accessories into the bridge
+ before going online
+
+A commissioned controller (verified with an Apple Home hub) re-establishes
+its subscription within the first second of the server node coming online.
+Until plugins re-register their accessories - seconds later at best - the
+aggregator parts list is empty or partial, so the controller treats the
+missing endpoints as removed devices and discards their metadata (room
+assignments, tile settings), then re-adds them as new devices when the
+registrations land.
+
+The accessory cache already contains everything needed to rebuild the
+endpoints. This change:
+
+- loads the accessory cache and registers every cached accessory into the
+  aggregator after the aggregator exists but before startServerNode(), so
+  the parts list is complete from the first packet. Device types are
+  resolved back through the public deviceTypes registry from their cached
+  names. Handlers cannot be cached (functions), but custom behaviors (e.g.
+  the OnOff server on switch device types) are only attached for clusters
+  that have handlers - empty stub handlers are synthesized per cached
+  cluster so restored endpoints are structurally identical to the originals.
+- marks restored accessories with an internal _restoredFromCache flag; when
+  the plugin re-registers the same UUID, AccessoryManager attaches the
+  plugin's handlers and metadata to the existing endpoint in place instead
+  of throwing the duplicate-UUID error. A structural change (device type or
+  part ids differ) unregisters the restored endpoint and falls through to a
+  fresh registration.
+
+This also fixes restoreCachedAccessories() reporting 0 cached accessories:
+the cache was previously only loaded at the end of startServerNode(), after
+the (synchronous) restore call sites in server.ts/childBridgeFork.ts had
+already read it. Loading it in the pre-online restore hook means
+configureMatterAccessory now fires with the cached accessories as intended.
+
+Verified on a live bridge with 11 accessories (single-endpoint and composed
+with parts, including electrical measurement clusters) paired to an Apple
+Home hub: parts list complete at first subscription, endpoint numbers and
+BridgedDeviceBasicInformation uniqueIds byte-identical across restarts, and
+room assignments survive bridge restarts - previously they were lost on
+nearly every restart.
+---
+ src/matter/server.ts                  | 88 ++++++++++++++++++++++++++-
+ src/matter/server/AccessoryManager.ts | 51 ++++++++++++++--
+ src/matter/server/ServerLifecycle.ts  | 16 +++++
+ src/matter/types.ts                   |  7 +++
+ 4 files changed, 155 insertions(+), 7 deletions(-)
+
+diff --git a/src/matter/server.ts b/src/matter/server.ts
+index 82eeaa4..0b37655 100644
+--- a/src/matter/server.ts
++++ b/src/matter/server.ts
+@@ -5,7 +5,7 @@
+  * All public method signatures are preserved for external callers.
+  */
+ 
+-import type { ServerNode } from '@matter/main'
++import type { EndpointType, ServerNode } from '@matter/main'
+ 
+ import type { SerializedMatterAccessory } from './accessoryCache.js'
+ import type { MatterServerConfig } from './sharedTypes.js'
+@@ -368,6 +368,92 @@ export class MatterServer extends EventEmitter {
+       setAccessoryCache: (cache: MatterAccessoryCache) => {
+         this.accessoryCache = cache
+       },
++      restoreAccessoriesFromCache: async () => {
++        if (!this.accessoryCache) {
++          return
++        }
++        let cached: Map<string, SerializedMatterAccessory>
++        try {
++          cached = await this.accessoryCache.load()
++        } catch (error) {
++          log.warn('Failed to load Matter accessory cache for pre-online restore:', error)
++          return
++        }
++        if (cached.size === 0) {
++          return
++        }
++
++        // Device types are cached as name-only info; resolve them back through
++        // the public registry.
++        const typeByName = new Map<string, EndpointType>()
++        for (const [key, value] of Object.entries(deviceTypes)) {
++          typeByName.set(key, value as EndpointType)
++          const name = (value as { name?: string }).name
++          if (name) {
++            typeByName.set(name, value as EndpointType)
++          }
++        }
++
++        // Handlers are functions and cannot be cached, but custom behaviors
++        // (e.g. the OnOff server on switch device types) are only attached for
++        // clusters that have handlers. Synthesize empty stubs per cached
++        // cluster so the restored endpoint is structurally identical to the
++        // original; the plugin's re-registration supplies the real handlers.
++        const stubHandlers = (clusters?: Record<string, unknown>) => {
++          const handlers: Record<string, Record<string, never>> = {}
++          for (const clusterName of Object.keys(clusters ?? {})) {
++            handlers[clusterName] = {}
++          }
++          return Object.keys(handlers).length > 0 ? handlers : undefined
++        }
++
++        let restored = 0
++        for (const serialized of cached.values()) {
++          try {
++            const deviceType = typeByName.get(serialized.deviceType?.name ?? '')
++            if (!deviceType) {
++              log.warn(`Cannot restore cached Matter accessory ${serialized.displayName}: unknown device type "${serialized.deviceType?.name}"`)
++              continue
++            }
++            const parts = (serialized.parts ?? [])
++              .map(part => ({
++                id: part.id,
++                displayName: part.displayName,
++                deviceType: typeByName.get(part.deviceType?.name ?? ''),
++                clusters: part.clusters ?? {},
++                handlers: stubHandlers(part.clusters),
++              }))
++              .filter((part): part is typeof part & { deviceType: EndpointType } => part.deviceType !== undefined)
++
++            const accessory: InternalMatterAccessory = {
++              UUID: serialized.uuid,
++              displayName: serialized.displayName,
++              deviceType,
++              serialNumber: serialized.serialNumber,
++              manufacturer: serialized.manufacturer,
++              model: serialized.model,
++              firmwareRevision: serialized.firmwareRevision,
++              hardwareRevision: serialized.hardwareRevision,
++              softwareVersion: serialized.softwareVersion,
++              context: serialized.context ?? {},
++              clusters: serialized.clusters ?? {},
++              handlers: stubHandlers(serialized.clusters),
++              registered: false,
++              _restoredFromCache: true,
++            }
++            if (parts.length > 0) {
++              accessory.parts = parts
++            }
++            await this.accessoryManager.registerAccessory(serialized.plugin, serialized.platform, accessory, this.getAccessoryManagerDeps())
++            restored++
++          } catch (error) {
++            log.warn(`Failed to restore cached Matter accessory ${serialized.displayName}:`, error)
++          }
++        }
++        if (restored > 0) {
++          log.info(`Restored ${restored} cached Matter accessories into the bridge before going online`)
++        }
++      },
+       setServerNode: (node: ServerNode | null) => {
+         this.serverNode = node
+       },
+diff --git a/src/matter/server/AccessoryManager.ts b/src/matter/server/AccessoryManager.ts
+index f96fe1a..7895397 100644
+--- a/src/matter/server/AccessoryManager.ts
++++ b/src/matter/server/AccessoryManager.ts
+@@ -109,12 +109,51 @@ export class AccessoryManager {
+ 
+     if (deps.accessories.has(accessory.UUID)) {
+       const existing = deps.accessories.get(accessory.UUID)
+-      throw new MatterDeviceError(
+-        `Matter accessory with UUID "${accessory.UUID}" is already registered.\n`
+-        + `Existing accessory: "${existing?.displayName}"\n`
+-        + `New accessory: "${accessory.displayName}"\n`
+-        + 'Each accessory must have a unique UUID. Use api.hap.uuid.generate() with a unique string.',
+-      )
++      // A cache-restored accessory keeps its endpoint (so the parts list never
++      // churns); the plugin's registration attaches its handlers and metadata
++      // in place. Structural changes fall through to a fresh registration.
++      if (existing?._restoredFromCache) {
++        const partIds = (list?: { id: string }[]) => JSON.stringify((list ?? []).map(part => part.id).sort())
++        const sameShape = (existing.deviceType as { name?: string })?.name === (accessory.deviceType as { name?: string })?.name
++          && partIds(existing._parts ?? existing.parts) === partIds(accessory.parts)
++        if (sameShape) {
++          log.info(`Attached plugin registration to restored accessory ${accessory.displayName} (${accessory.UUID})`)
++          deps.accessories.set(accessory.UUID, {
++            ...existing,
++            ...accessory,
++            endpoint: existing.endpoint,
++            _parts: existing._parts,
++            registered: true,
++            _restoredFromCache: false,
++          })
++          this.registerAccessoryHandlers(accessory, deps)
++          for (const part of accessory.parts ?? []) {
++            if (!part.handlers) {
++              continue
++            }
++            const partEndpointId = `${accessory.UUID}-part-${part.id}`
++            deps.behaviorRegistry.registerPartEndpoint(partEndpointId, accessory.UUID, part.id)
++            for (const [clusterName, handlers] of Object.entries(part.handlers)) {
++              for (const [commandName, handler] of Object.entries(handlers)) {
++                deps.behaviorRegistry.registerHandler(partEndpointId, clusterName, commandName, handler)
++              }
++            }
++          }
++          if (deps.accessoryCache) {
++            deps.accessoryCache.requestSave(deps.accessories)
++          }
++          return
++        }
++        log.info(`Restored accessory ${accessory.displayName} changed structure - re-registering`)
++        await this.unregisterAccessory(accessory.UUID, deps)
++      } else {
++        throw new MatterDeviceError(
++          `Matter accessory with UUID "${accessory.UUID}" is already registered.\n`
++          + `Existing accessory: "${existing?.displayName}"\n`
++          + `New accessory: "${accessory.displayName}"\n`
++          + 'Each accessory must have a unique UUID. Use api.hap.uuid.generate() with a unique string.',
++        )
++      }
+     }
+ 
+     this.restoreCachedState(accessory, deps.accessoryCache)
+diff --git a/src/matter/server/ServerLifecycle.ts b/src/matter/server/ServerLifecycle.ts
+index 04c4294..afea5a0 100644
+--- a/src/matter/server/ServerLifecycle.ts
++++ b/src/matter/server/ServerLifecycle.ts
+@@ -50,6 +50,14 @@ export interface ServerLifecycleDeps {
+   getCommissioningDeps: () => CommissioningDeps
+   getAccessoryCache: () => MatterAccessoryCache | null
+   setAccessoryCache: (cache: MatterAccessoryCache) => void
++  /**
++   * Rebuilds cached accessories into the aggregator. Called after the
++   * aggregator exists but BEFORE the server node goes online, so that a
++   * commissioned controller reconnecting during startup never observes a
++   * shrunken parts list (which makes controllers treat the missing endpoints
++   * as removed devices and e.g. discard their room assignments).
++   */
++  restoreAccessoriesFromCache?: () => Promise<void>
+   setServerNode: (node: ServerNode | null) => void
+   getServerNode: () => ServerNode | null
+   setAggregator: (agg: Endpoint<typeof AggregatorEndpointType> | null) => void
+@@ -368,6 +376,14 @@ export class ServerLifecycle {
+       process.on('SIGTERM', shutdownHandler)
+ 
+       if (!deps.config.externalAccessory) {
++        // Restore cached accessories into the aggregator before going online.
++        // Controllers (verified with an Apple Home hub) re-establish their
++        // subscription within the first second of the node coming online and
++        // prune any bridged device missing from the parts list at that moment.
++        if (deps.restoreAccessoriesFromCache) {
++          await deps.restoreAccessoriesFromCache()
++        }
++
+         await this.startServerNode(serverNode, deps)
+       } else {
+         log.debug('Deferred start mode - server prepared but not running yet (will start after device registration)')
+diff --git a/src/matter/types.ts b/src/matter/types.ts
+index 7cbc6b7..8187501 100644
+--- a/src/matter/types.ts
++++ b/src/matter/types.ts
+@@ -456,6 +456,13 @@ export interface InternalMatterAccessory extends MatterAccessory {
+   /** Plugin identifier (set when registered) */
+   _associatedPlugin?: string
+ 
++  /**
++   * True while this accessory was rebuilt from the accessory cache at startup
++   * and its plugin has not re-registered yet. The plugin's registration
++   * attaches handlers to the existing endpoint instead of erroring.
++   */
++  _restoredFromCache?: boolean
++
+   /** Platform name (set when registered) */
+   _associatedPlatform?: string
+ 
+-- 
+2.50.1 (Apple Git-155)
+

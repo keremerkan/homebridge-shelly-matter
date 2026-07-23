@@ -1,0 +1,98 @@
+--- /var/lib/homebridge/node_modules/homebridge/dist/matter/server/AccessoryManager.js.bak-pretag	2026-07-23 13:23:52.415233532 +0300
++++ /var/lib/homebridge/node_modules/homebridge/dist/matter/server/AccessoryManager.js	2026-07-23 22:29:40.459259372 +0300
+@@ -6,9 +6,11 @@
+  * and restoring cached state.
+  */
+ import { EventEmitter } from 'node:events';
++import { createHash } from 'node:crypto';
+ import process from 'node:process';
+ import { Endpoint } from '@matter/main';
+-import { BasicInformationServer, BridgedDeviceBasicInformationServer, DescriptorServer } from '@matter/main/behaviors';
++import { BasicInformationServer, BridgedDeviceBasicInformationServer, DescriptorServer, FixedLabelServer } from '@matter/main/behaviors';
++import { VendorId } from '@matter/main';
+ import { PowerSourceServer } from '@matter/node/behaviors';
+ import { Logger } from '../../logger.js';
+ import { setRegistryManager } from '../behaviors/EndpointContext.js';
+@@ -142,11 +144,28 @@
+                 // (e.g., BridgedNodeEndpoint used as a composed device container)
+                 const hasBridgedInfo = deviceType.behaviors?.bridgedDeviceBasicInformation !== undefined;
+                 if (!hasBridgedInfo) {
+-                    deviceType = deviceType.with(BridgedDeviceBasicInformationServer);
++                    deviceType = deviceType.with(BridgedDeviceBasicInformationServer.enable({ events: { leave: true, reachableChanged: true } }));
+                     log.debug(`Added BridgedDeviceBasicInformationServer to ${accessory.displayName}`);
+                 }
+             }
+             const endpointOptions = this.createEndpointOptions(accessory, deps.config);
++            // Composed parents carry a FixedLabel marking the composition,
++            // matching known-good bridges - controllers appear to need it to
++            // bind child endpoints to the composed accessory.
++            if (accessory.parts && accessory.parts.length > 0 && deviceType.behaviors?.fixedLabel === undefined) {
++                deviceType = deviceType.with(FixedLabelServer);
++                endpointOptions.fixedLabel = { labelList: [{ label: 'composed', value: 'Light' }] };
++                // Known-good bridges also expose a wired PowerSource on
++                // composed parents; controllers appear to expect it.
++                deviceType = deviceType.with(PowerSourceServer.with('Wired'));
++                endpointOptions.powerSource = {
++                    status: 1,
++                    order: 0,
++                    description: 'AC Power',
++                    endpointList: [],
++                    wiredCurrentType: 1,
++                };
++            }
+             const endpoint = new Endpoint(deviceType, endpointOptions);
+             setRegistryManager(endpoint, deps.registryManager);
+             if (deps.config.debugModeEnabled) {
+@@ -458,6 +477,7 @@
+         };
+         if (!config.externalAccessory) {
+             endpointOptions.bridgedDeviceBasicInformation = {
++                vendorId: VendorId(65521),
+                 vendorName: accessory.manufacturer,
+                 nodeLabel: accessory.displayName,
+                 productName: accessory.model,
+@@ -466,7 +486,28 @@
+                 productLabel: stripVendorFromLabel(accessory.displayName, accessory.manufacturer)
+                     || accessory.model || 'Device',
+                 serialNumber: accessory.serialNumber,
++                // Apple homed refuses to register accessories whose firmware
++                // metadata is missing or unparseable ("invalid matter AFU
++                // settings") - which silently breaks its whole control path.
++                // Provide a consistent numeric+string version pair.
++                ...(() => {
++                    const m = /(\d+)\.(\d+)\.(\d+)/.exec(accessory.firmwareRevision || "");
++                    const ver = m ? [Number(m[1]) & 255, Number(m[2]) & 255, Number(m[3]) & 255] : [1, 0, 0];
++                    return {
++                        softwareVersion: (ver[0] << 16) | (ver[1] << 8) | ver[2],
++                        softwareVersionString: ver.join("."),
++                    };
++                })(),
+                 reachable: true,
++                hardwareVersion: 1,
++                hardwareVersionString: "1.0.0",
++                configurationVersion: 1,
++                productUrl: "https://homebridge.io",
++                // matter.js otherwise fills uniqueId with a random string
++                // persisted only in its own storage; controllers key bridged
++                // accessory identity on it. Derive it from the accessory UUID
++                // so the same registration always yields the same identity.
++                uniqueId: createHash('md5').update(accessory.UUID).digest('hex'),
+             };
+         }
+         return endpointOptions;
+@@ -531,8 +572,15 @@
+                 applyElectricalMeasurementDefaults(part, partElectrical);
+                 partDeviceType = applyElectricalMeasurementClusters(partDeviceType, part, partElectrical);
+             }
++            // Tag each child with a semantic Number tag so controllers can
++            // stably re-map otherwise-identical children of a composed device;
++            // without it they are distinguishable only by transient endpoint
++            // number, which Apple Home mishandles across hub changes.
++            const partIndex = accessory.parts.indexOf(part);
++            partDeviceType = partDeviceType.with(DescriptorServer.with('TagList'));
+             const partEndpointOptions = {
+                 id: partEndpointId,
++                descriptor: { tagList: [{ mfgCode: null, namespaceId: 7, tag: partIndex, label: (part.displayName || part.id).slice(0, 64) }] },
+                 ...part.clusters,
+             };
+             const partEndpoint = new Endpoint(partDeviceType, partEndpointOptions);

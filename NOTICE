@@ -1,0 +1,10 @@
+homebridge-shelly-matter
+Copyright 2026 Kerem Erkan
+
+This product includes software developed by Luca Liguori:
+- The Shelly protocol and device layer under src/shelly/ is derived from
+  matterbridge-shelly (https://github.com/Luligu/matterbridge-shelly),
+  Copyright Luca Liguori, licensed under the Apache License 2.0.
+- The validation utilities under src/shelly/utils/ are derived from
+  matterbridge (https://github.com/Luligu/matterbridge),
+  Copyright Luca Liguori, licensed under the Apache License 2.0.

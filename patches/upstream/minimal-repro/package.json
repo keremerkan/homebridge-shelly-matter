@@ -1,0 +1,8 @@
+{
+  "name": "homebridge-matter-minimal",
+  "version": "0.0.1",
+  "description": "Minimal Matter test plugin - one static OnOffLight",
+  "main": "index.js",
+  "engines": { "homebridge": ">=2.2.0" },
+  "keywords": ["homebridge-plugin"]
+}

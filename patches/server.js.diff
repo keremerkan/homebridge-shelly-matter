@@ -1,0 +1,88 @@
+--- /var/lib/homebridge/node_modules/homebridge/dist/matter/server.js.orig	2026-07-21 22:52:57.505129943 +0300
++++ /var/lib/homebridge/node_modules/homebridge/dist/matter/server.js	2026-07-21 23:04:11.679922985 +0300
+@@ -250,6 +250,85 @@
+             setAccessoryCache: (cache) => {
+                 this.accessoryCache = cache;
+             },
++            // HOMEBRIDGE PATCH (shelly-matter): rebuild cached accessories into the
++            // aggregator before the node goes online so a commissioned controller
++            // never observes a shrunken parts list (which deletes devices and their
++            // room assignments in e.g. Apple Home).
++            restoreAccessoriesFromCache: async () => {
++                if (!this.accessoryCache) {
++                    return;
++                }
++                let cached;
++                try {
++                    cached = await this.accessoryCache.load();
++                }
++                catch (error) {
++                    log.warn('Failed to load Matter accessory cache for pre-online restore:', error);
++                    return;
++                }
++                if (!cached || cached.size === 0) {
++                    return;
++                }
++                const byName = new Map();
++                for (const [key, value] of Object.entries(deviceTypes)) {
++                    byName.set(key, value);
++                    if (value?.name) {
++                        byName.set(value.name, value);
++                    }
++                }
++                let restored = 0;
++                for (const s of cached.values()) {
++                    try {
++                        const deviceType = byName.get(s.deviceType?.name);
++                        if (!deviceType) {
++                            log.warn(`Cannot restore cached Matter accessory ${s.displayName}: unknown device type "${s.deviceType?.name}"`);
++                            continue;
++                        }
++                        // Handlers are functions and cannot be cached, but custom
++                        // behaviors (e.g. the OnOff server on switch device types) are
++                        // only attached for clusters that HAVE handlers - synthesize
++                        // empty stubs per declared cluster so the restored endpoint is
++                        // structurally identical; the plugin's re-registration replaces
++                        // them with real handlers via the behavior registry.
++                        const stubHandlers = (clusters) => {
++                            const handlers = {};
++                            for (const clusterName of Object.keys(clusters ?? {})) {
++                                handlers[clusterName] = {};
++                            }
++                            return Object.keys(handlers).length > 0 ? handlers : undefined;
++                        };
++                        const parts = (s.parts ?? [])
++                            .map((p) => ({ id: p.id, displayName: p.displayName, deviceType: byName.get(p.deviceType?.name), clusters: p.clusters ?? {}, handlers: stubHandlers(p.clusters) }))
++                            .filter((p) => p.deviceType !== undefined);
++                        const accessory = {
++                            UUID: s.uuid,
++                            displayName: s.displayName,
++                            deviceType,
++                            serialNumber: s.serialNumber,
++                            manufacturer: s.manufacturer,
++                            model: s.model,
++                            firmwareRevision: s.firmwareRevision,
++                            hardwareRevision: s.hardwareRevision,
++                            softwareVersion: s.softwareVersion,
++                            context: s.context ?? {},
++                            clusters: s.clusters ?? {},
++                            handlers: stubHandlers(s.clusters),
++                            _restoredFromCache: true,
++                        };
++                        if (parts.length > 0) {
++                            accessory.parts = parts;
++                        }
++                        await this.accessoryManager.registerAccessory(s.plugin, s.platform, accessory, this.getAccessoryManagerDeps());
++                        restored++;
++                    }
++                    catch (error) {
++                        log.warn(`Failed to restore cached Matter accessory ${s.displayName}:`, error);
++                    }
++                }
++                if (restored > 0) {
++                    log.info(`Restored ${restored} cached Matter accessories into the bridge before going online`);
++                }
++            },
+             setServerNode: (node) => {
+                 this.serverNode = node;
+             },

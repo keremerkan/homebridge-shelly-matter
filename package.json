@@ -1,0 +1,60 @@
+{
+  "name": "homebridge-shelly-matter",
+  "displayName": "Homebridge Shelly Matter",
+  "version": "0.1.0",
+  "description": "Expose Shelly devices to Apple Home over Matter through Homebridge 2 \u2014 including live power and energy metering (iOS 27+).",
+  "author": "Kerem Erkan <kerem@ake.dev>",
+  "type": "module",
+  "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keremerkan/homebridge-shelly-matter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/keremerkan/homebridge-shelly-matter/issues"
+  },
+  "homepage": "https://github.com/keremerkan/homebridge-shelly-matter#readme",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || ^26.0.0",
+    "homebridge": "^2.2.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "homebridge",
+    "shelly",
+    "matter",
+    "energy",
+    "power",
+    "metering",
+    "homekit",
+    "home-automation"
+  ],
+  "license": "Apache-2.0",
+  "files": [
+    "dist",
+    "homebridge-ui",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "NOTICE"
+  ],
+  "dependencies": {
+    "@homebridge/plugin-ui-utils": "^2.2.5",
+    "coap": "1.5.0",
+    "multicast-dns": "7.2.5",
+    "node-ansi-logger": "3.3.0",
+    "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@types/multicast-dns": "^7.2.4",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "homebridge": "^2.2.1",
+    "typescript": "^5.7.0"
+  }
+}
