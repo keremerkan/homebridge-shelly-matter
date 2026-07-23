@@ -159,9 +159,7 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
   // rotates the accessory identity, parent included. Controllers then see a
   // clean remove+add; a parent that keeps its identity while its children
   // change becomes an uneditable "Not Supported" husk in Apple Home.
-  // 'g3|' generation prefix: g2 rotated all identities (2026-07-23); g3 is
-  // the switch to the always-composed shape.
-  const uuid = platform.matter.uuid.generate(`g3|${device.id}|bridge|${visible.map((component) => `${component.index}:${resolveAccessoryType(platform, device, component)}`).join(',')}`);
+  const uuid = platform.matter.uuid.generate(`${device.id}|bridge|${visible.map((component) => `${component.index}:${resolveAccessoryType(platform, device, component)}`).join(',')}`);
   const base = {
     UUID: uuid,
     displayName,
