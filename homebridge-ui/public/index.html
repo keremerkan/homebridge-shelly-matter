@@ -148,8 +148,8 @@
         render();
       } else {
         status.textContent = source === 'known by the plugin'
-          ? 'No devices seen by the plugin yet. Make sure the plugin has run, or press Scan network.'
-          : 'No devices found. Check that the Homebridge host is on the same network as your Shellys.';
+          ? 'No devices seen by the plugin yet. Press Scan network to discover them, or add a device by its IP address in the configuration below.'
+          : 'No devices found. Check that the Homebridge host is on the same network as your Shellys, or add a device by its IP address in the configuration below.';
       }
     }
 
