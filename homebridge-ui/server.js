@@ -41,6 +41,9 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
       const username = platform?._bridge?.username;
       if (!username) return [];
       const bridgeId = username.replace(/:/g, '');
+      // A bridge id is a 12-hex-digit MAC without separators; reject anything
+      // else so a crafted username cannot escape the matter storage directory.
+      if (!/^[0-9a-f]{12}$/i.test(bridgeId)) return [];
       const file = await this.findFabricsFile(join(this.homebridgeStoragePath, 'matter', bridgeId), bridgeId);
       if (!file) return [];
       const unwrap = (value) => {
@@ -110,8 +113,12 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     await Promise.all(
       devices.map(async (device) => {
         if (device.gen < 2) return;
+        // device.host comes from an mDNS record; only enrich real hostnames/IPs
+        // so a crafted responder cannot reshape the URL or redirect us at an
+        // internal service (SSRF).
+        if (typeof device.host !== 'string' || !/^[a-zA-Z0-9.-]{1,253}$/.test(device.host)) return;
         try {
-          const res = await fetch(`http://${device.host}/rpc/Shelly.GetConfig`, { signal: AbortSignal.timeout(RPC_TIMEOUT_MS) });
+          const res = await fetch(`http://${device.host}/rpc/Shelly.GetConfig`, { signal: AbortSignal.timeout(RPC_TIMEOUT_MS), redirect: 'error' });
           if (!res.ok) return;
           const config = await res.json();
           device.name = config.sys?.device?.name ?? null;

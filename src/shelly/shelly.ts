@@ -382,7 +382,7 @@ export class Shelly extends EventEmitter<ShellyEvents> {
       void this.coapServer.registerDevice(device.host, device.id, device.sleepMode); // No await to register device for CoIoT updates
     } else if (device.gen >= 2) {
       if (!device.sleepMode && device.wsClient?.isConnected === false) {
-        device.log.info(`WebSocket client for device ${hk}${device.id}${nf} host ${zb}${device.host}${nf} is not connected. Starting connection...`);
+        device.log.debug(`WebSocket client for device ${hk}${device.id}${nf} host ${zb}${device.host}${nf} is not connected. Starting connection...`);
         device.wsClient.start();
       }
     } else {

@@ -95,21 +95,19 @@
         const label = LABELS[t] + (t === defaultAccessoryType(device.id) ? ' (default)' : '');
         return `<option value="${t}" ${current === t ? 'selected' : ''}>${label}</option>`;
       }).join('');
-      return `<select class="custom-select custom-select-sm" data-entry="${key}">${options}</select>`;
+      return `<select class="custom-select custom-select-sm" data-entry="${escapeAttr(key)}">${options}</select>`;
     }
 
-    function nameInputHtml(device, channel) {
-      const entry = entryFor(device.id, device.host);
-      const name = (channel === undefined ? entry?.name : channelFor(entry, channel)?.name) ?? '';
-      const key = channel === undefined ? device.id : `${device.id}:${channel}`;
-      return `<input type="text" class="form-control form-control-sm" data-name-entry="${key}" value="${escapeAttr(name)}" placeholder="e.g. Office Ceiling">`;
+    function nameInputHtml(device) {
+      const name = entryFor(device.id, device.host)?.name ?? '';
+      return `<input type="text" class="form-control form-control-sm" data-name-entry="${escapeAttr(device.id)}" value="${escapeAttr(name)}" placeholder="e.g. Office Ceiling">`;
     }
 
     function render() {
       const rows = [];
       for (const device of devices) {
-        const label = device.name && device.name !== device.id ? `${device.name} <span class="text-muted">(${device.id})</span>` : device.id;
-        const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).join(' · ');
+        const label = device.name && device.name !== device.id ? `${escapeAttr(device.name)} <span class="text-muted">(${escapeAttr(device.id)})</span>` : escapeAttr(device.id);
+        const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).map(escapeAttr).join(' · ');
         const multi = device.channels > 1;
         const span = multi ? device.channels + 1 : 1;
         rows.push(`
@@ -120,12 +118,12 @@
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(device)}</td>
             <td>${multi ? '<span class="text-muted">per channel</span>' : selectHtml(device)}</td>
-            <td style="text-align: center;"><input type="checkbox" data-hide="${device.id}" ${entryFor(device.id, device.host)?.hidden === true ? 'checked' : ''}></td>
+            <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${entryFor(device.id, device.host)?.hidden === true ? 'checked' : ''}></td>
           </tr>
           ${multi
             ? Array.from({ length: device.channels }, (_, i) => {
                 const hidden = channelFor(entryFor(device.id, device.host), i)?.hidden === true;
-                return `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(device, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${device.id}:${i}" ${hidden ? 'checked' : ''}></td></tr>`;
+                return `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(device, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${hidden ? 'checked' : ''}></td></tr>`;
               }).join('')
             : ''}
         `);
@@ -186,8 +184,8 @@
         }
         const rows = fabrics.map((f) => `
           <tr>
-            <td>${f.vendor}${f.label ? ` <span class="text-muted">(${escapeAttr(f.label)})</span>` : ''}</td>
-            <td class="text-muted" style="font-size: 0.8rem;">fabric ${f.index} · id ${f.fabricId}</td>
+            <td>${escapeAttr(f.vendor)}${f.label ? ` <span class="text-muted">(${escapeAttr(f.label)})</span>` : ''}</td>
+            <td class="text-muted" style="font-size: 0.8rem;">fabric ${escapeAttr(String(f.index))} · id ${escapeAttr(String(f.fabricId))}</td>
           </tr>`).join('');
         el.innerHTML = `<table class="table table-sm" style="margin: 0;"><tbody>${rows}</tbody></table>
           <span class="text-muted">${fabrics.length} controller(s) connected. Remove a bridge from a controller's app to revoke its access.</span>`;

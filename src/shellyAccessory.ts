@@ -180,8 +180,9 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
     return {
       id: partId,
       // Single-channel devices keep the plain device name on their sole part;
-      // multi-channel parts get the channel name or an index suffix.
-      displayName: channelConfig(entry, component.index)?.name ?? (visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`),
+      // multi-channel parts get an index suffix (channel tiles are renamed in
+      // the Home app).
+      displayName: visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`,
       deviceType: matterDeviceTypeFor(platform, type),
       clusters: clustersFor(component, metering),
       handlers: handlersFor(platform, uuid, device.id, component.id, partId),

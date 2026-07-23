@@ -6,7 +6,6 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
 /** Per-channel settings of a multi-channel device; `channel` is 0-based, as on the device. */
 export interface ShellyChannelConfig {
   channel?: number;
-  name?: string;
   accessoryType?: AccessoryType;
   hidden?: boolean;
 }
