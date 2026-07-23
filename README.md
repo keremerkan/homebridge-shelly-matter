@@ -43,7 +43,7 @@ Devices without supported components are discovered but skipped with a log messa
 
 ## Configuration
 
-Most configuration happens in the plugin settings UI: discovered devices appear in a table where each device (or channel of a multi-channel device) gets a friendly name, an accessory type, and a hide toggle. Everything is stored in a single `devices` array:
+Most configuration happens in the plugin settings UI: discovered devices appear in a table where each device gets a friendly name, and each device (or each channel of a multi-channel device) gets an accessory type and a hide toggle. Everything is stored in a single `devices` array:
 
 ```json
 {
@@ -57,7 +57,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
       "device": "shellypro2pm-EC62AABBCC",
       "name": "Cinema",
       "channels": [
-        { "channel": 1, "name": "Cinema Curtain", "accessoryType": "switch", "hidden": true }
+        { "channel": 1, "accessoryType": "switch", "hidden": true }
       ]
     },
     { "host": "192.168.1.50", "powerMetering": false }
@@ -70,7 +70,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `name` — the name shown in the Home app.
 - `accessoryType` — `light`, `outlet`, or `switch`. Defaults: plugs are outlets, wired relay devices are lights.
 - `hidden` — set `true` to not expose the device (or a channel) to Matter at all.
-- `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. Channels without an entry use the device settings.
+- `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `accessoryType`, `hidden`. The device `name` applies to the whole device; individual channel tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
 
 Devices need no entry at all when the defaults fit - entries only record deviations.

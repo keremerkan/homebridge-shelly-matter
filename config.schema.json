@@ -76,10 +76,6 @@
                     "required": true,
                     "minimum": 0
                   },
-                  "name": {
-                    "title": "Name shown in the Home app",
-                    "type": "string"
-                  },
                   "accessoryType": {
                     "title": "Accessory type",
                     "type": "string",
