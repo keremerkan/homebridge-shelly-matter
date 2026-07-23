@@ -37,7 +37,7 @@ control-loss and stranded-fabric issues are being reported to Apple separately.
   - On/off control
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
-- Multi-channel devices are exposed as one Matter bridged node with one outlet per channel.
+- Multi-channel devices appear as a single grouped accessory, with a separate control per channel (each channel's type is set independently).
 
 Devices without supported components are discovered but skipped with a log message. Covers, dimmers, RGB, sensors, Gen 1 and BLU devices are on the roadmap — the underlying protocol layer already speaks CoIoT (Gen 1), WebSocket RPC (Gen 2+), and mDNS discovery.
 
@@ -66,21 +66,23 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 ```
 
 - `device` — the device id. One entry per physical device.
-- `host` — IP address/hostname; only needed for devices mDNS cannot find (they are added directly).
+- `host` — IP address/hostname; needed for devices mDNS cannot find, or for every device when mDNS discovery is disabled (they are added directly).
 - `name` — the name shown in the Home app.
 - `accessoryType` — `light`, `outlet`, or `switch`. Defaults: plugs are outlets, wired relay devices are lights.
 - `hidden` — set `true` to not expose the device (or a channel) to Matter at all.
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `accessoryType`, `hidden`. The device `name` applies to the whole device; individual channel tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
 
-Devices need no entry at all when the defaults fit - entries only record deviations.
+Devices need no entry at all when the defaults fit — entries only record deviations.
+
+The platform also accepts `mdnsDiscover` (default `true`). Set it to `false` to turn off background mDNS discovery — devices with a configured `host` still connect directly, so this is safe once every device has a fixed IP. New devices are then added by IP in this list, or via the settings UI's **Scan network** button (which runs a one-off scan regardless of this setting).
 
 ## Changing a device's accessory type
 
 Changing the accessory type of a device or channel deliberately re-creates its
 Matter accessory with a fresh identity (Apple Home mishandles devices that
 reappear with the same identity but a different device type, leaving them
-uneditable). The re-created accessory returns to the default room - reassign
+uneditable). The re-created accessory returns to the default room — reassign
 it once after the change.
 
 ## Uninstalling / reinstalling
