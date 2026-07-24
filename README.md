@@ -31,6 +31,13 @@ branches). This requirement will be replaced by a concrete
 These are also **Apple Home** behaviours, not plugin bugs: the same 30-second
 control-loss and stranded-fabric issues are being reported to Apple separately.
 
+One more Apple Home behaviour to be aware of: **tile wattage only appears on
+outlet-typed accessories.** Power metering works for every accessory type this
+plugin exposes, but lights and switches — even though they publish identical
+power and energy data — show no consumption on their own tiles. Their usage is
+still measured and included in the Home app's whole-home energy view. If you
+want live wattage on a device's tile, set its accessory type to outlet.
+
 ## Supported devices (early release)
 
 - **Shelly Gen 2/3 relays and plugs** (Plus/Pro 1, 1PM, 2PM in switch profile, Plus Plug S, …)
