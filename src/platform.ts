@@ -229,12 +229,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * back and retried until the server is ready.
    */
   private async registerVerified(accessory: MatterAccessory, label: string): Promise<boolean> {
-    // Probe an attribute the accessory actually declares rather than assuming
-    // onOff on the root - sensor-only device types would otherwise never verify.
-    const rootCluster = Object.keys(accessory.clusters ?? {})[0];
-    const probe = rootCluster !== undefined
-      ? { cluster: rootCluster, partId: undefined }
-      : { cluster: Object.keys(accessory.parts?.[0]?.clusters ?? { onOff: {} })[0], partId: accessory.parts?.[0]?.id };
+    // Every accessory is composed, so confirm registration by reading an
+    // attribute the first part actually declares (not a root cluster).
+    const part = accessory.parts?.[0];
+    const probe = { cluster: Object.keys(part?.clusters ?? { onOff: {} })[0], partId: part?.id };
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probe.cluster, probe.partId)) !== undefined;
 

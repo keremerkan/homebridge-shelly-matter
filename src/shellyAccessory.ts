@@ -133,10 +133,8 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
 /** Serializable context stored with the accessory; enough to rebuild it from the cache. */
 interface ShellyAccessoryContext {
   deviceId: string;
-  type: AccessoryType | 'bridge';
-  component?: string;
-  partTypes?: Record<string, AccessoryType>;
-  partComponents?: Record<string, string>;
+  partTypes: Record<string, AccessoryType>;
+  partComponents: Record<string, string>;
 }
 
 /**
@@ -188,7 +186,7 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
       handlers: handlersFor(platform, uuid, device.id, component.id, partId),
     };
   });
-  const context: ShellyAccessoryContext = { deviceId: device.id, type: 'bridge', partTypes, partComponents };
+  const context: ShellyAccessoryContext = { deviceId: device.id, partTypes, partComponents };
   return {
     ...base,
     context,
@@ -210,22 +208,14 @@ export function cachedAccessoryDeviceId(cached: MatterAccessory): string | undef
  */
 export function rebuildCachedAccessory(platform: ShellyMatterPlatform, cached: MatterAccessory): MatterAccessory | undefined {
   const context = cached.context as Partial<ShellyAccessoryContext> | undefined;
-  if (!context?.deviceId || !context.type) return undefined;
-  const deviceId = context.deviceId;
+  if (!context?.deviceId || !context.partTypes || !context.partComponents) return undefined;
+  const { deviceId, partTypes, partComponents } = context;
   const toDeviceType = (type: unknown) => matterDeviceTypeFor(platform, (ACCESSORY_TYPES.includes(type as AccessoryType) ? type : defaultAccessoryType(deviceId)) as AccessoryType);
 
-  if (context.type !== 'bridge') {
-    if (!context.component) return undefined;
-    return {
-      ...cached,
-      deviceType: toDeviceType(context.type),
-      handlers: handlersFor(platform, cached.UUID, deviceId, context.component),
-    };
-  }
   const parts = (cached.parts ?? []).map((part) => ({
     ...part,
-    deviceType: toDeviceType(context.partTypes?.[part.id]),
-    handlers: handlersFor(platform, cached.UUID, deviceId, context.partComponents?.[part.id] ?? part.id.replace('-', ':'), part.id),
+    deviceType: toDeviceType(partTypes[part.id]),
+    handlers: handlersFor(platform, cached.UUID, deviceId, partComponents[part.id], part.id),
   }));
   return { ...cached, deviceType: platform.matter.deviceTypes.BridgedNode, parts };
 }
@@ -246,19 +236,16 @@ export function accessorySignature(accessory: MatterAccessory): string {
   });
 }
 
-/**
- * The registered accessory decides the topology: composed accessories address
- * their endpoints by partId, single-endpoint accessories by the root.
- */
-function partIdIn(platform: ShellyMatterPlatform, accessory: MatterAccessory, device: ShellyDevice, component: ShellyComponent): string | undefined {
-  return accessory.parts === undefined ? undefined : partIdFor(component, resolveAccessoryType(platform, device, component));
+/** Every accessory is composed, so a component always maps to its part id. */
+function partIdIn(platform: ShellyMatterPlatform, device: ShellyDevice, component: ShellyComponent): string {
+  return partIdFor(component, resolveAccessoryType(platform, device, component));
 }
 
 /** Pushes the device's current state into an already-registered accessory. */
 export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyDevice, accessory: MatterAccessory): void {
   const metering = meteringEnabled(platform, device);
   for (const component of visibleComponents(platform, device)) {
-    const partId = partIdIn(platform, accessory, device, component);
+    const partId = partIdIn(platform, device, component);
     for (const [cluster, attributes] of Object.entries(clustersFor(component, metering))) {
       void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
     }
@@ -271,7 +258,7 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
   const lastEnergyPush = new Map<string, number>();
 
   for (const component of visibleComponents(platform, device)) {
-    const partId = partIdIn(platform, accessory, device, component);
+    const partId = partIdIn(platform, device, component);
 
     component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
       const entry = PROPERTY_MAP.find((e) => e.property === property);
