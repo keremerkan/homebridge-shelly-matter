@@ -7,6 +7,12 @@
     Loading devices seen by the plugin...
   </div>
   <div id="device-table"></div>
+  <div class="text-muted" style="font-size: 0.8rem;">
+    Relays and plugs are tested on real devices; covers and dimmers are newly
+    supported but not yet validated on real hardware. Please confirm they work
+    (or report problems) at
+    <a href="https://github.com/keremerkan/homebridge-shelly-matter/issues" target="_blank" rel="noopener">github.com/keremerkan/homebridge-shelly-matter/issues</a>.
+  </div>
 
   <div style="margin-top: 1.25rem;">
     <h5 style="margin: 0 0 0.5rem;">Connected controllers</h5>
@@ -23,14 +29,14 @@
     // (effective/default types, entry name/hidden) - this page holds no copy
     // of the config rules, in either direction: it renders rows and posts
     // neutral selections back.
-    let view = { types: [], rows: new Map() };
+    let view = { types: [], untested: [], rows: new Map() };
 
     const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const typeLabel = (type) => type.charAt(0).toUpperCase() + type.slice(1);
 
     async function loadView() {
-      const { types, rows } = await homebridge.request('/device-view', { config, devices });
-      view = { types, rows: new Map(rows.map((row) => [row.id, row])) };
+      const { types, untested, rows } = await homebridge.request('/device-view', { config, devices });
+      view = { types, untested: untested ?? [], rows: new Map(rows.map((row) => [row.id, row])) };
     }
 
     /** Harvests the table into neutral selections; server.js rebuilds the entries. */
@@ -42,10 +48,13 @@
         const select = document.querySelector(`select[data-entry="${device.id}"]`);
         if (select) sel.type = select.value;
         sel.hidden = document.querySelector(`input[data-hide="${device.id}"]`)?.checked === true;
-        sel.channels = [...document.querySelectorAll(`select[data-entry^="${device.id}:"]`)].map((channelSelect) => {
-          const channel = Number(channelSelect.dataset.entry.split(':').pop());
+        // Every channel row has a hide checkbox; only switch channels have a
+        // type dropdown (covers/dimmers are fixed kinds).
+        const channelKinds = view.rows.get(device.id)?.channelKinds ?? [];
+        sel.channels = channelKinds.map((_, channel) => {
+          const channelSelect = document.querySelector(`select[data-entry="${device.id}:${channel}"]`);
           const hidden = document.querySelector(`input[data-hide="${device.id}:${channel}"]`)?.checked === true;
-          return { channel, type: channelSelect.value, hidden };
+          return { channel, ...(channelSelect && { type: channelSelect.value }), hidden };
         });
         return sel;
       });
@@ -61,7 +70,13 @@
       homebridge.showSchemaForm();
     }
 
-    function selectHtml(row, channel) {
+    /** Type cell: a dropdown for switch channels, a fixed label (with untested badge) otherwise. */
+    function typeCellHtml(row, channel) {
+      const kind = channel === undefined ? row.kind : row.channelKinds[channel];
+      if (kind !== 'switch') {
+        const badge = view.untested.includes(kind) ? ' <span class="badge badge-warning">untested</span>' : '';
+        return `${typeLabel(kind)}${badge}`;
+      }
       const current = channel === undefined ? row.type : row.channelTypes[channel];
       const key = channel === undefined ? row.id : `${row.id}:${channel}`;
       const options = view.types.map((t) => {
@@ -91,11 +106,11 @@
             </td>
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>
-            <td>${multi ? '<span class="text-muted">per channel</span>' : selectHtml(row)}</td>
+            <td>${multi ? '<span class="text-muted">per channel</span>' : typeCellHtml(row)}</td>
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>
           ${row.channelTypes.map((_, i) =>
-            `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(row, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
+            `<tr><td>channel ${i + 1}</td><td></td><td>${typeCellHtml(row, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
           ).join('')}
         `);
       }

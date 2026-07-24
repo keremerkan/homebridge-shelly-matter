@@ -44,6 +44,10 @@ Resolution: channel setting → device setting → kind default (id contains
 'plug' → outlet, else light). Entries record deviations, EXCEPT `host` which
 the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
+`accessoryType` applies to switch components only — cover and dimmer channels
+have fixed Matter types (`ComponentKind` in shellyAccessory.ts:
+switch/cover/dimmer; covers+dimmers are SUPPORTED-UNTESTED, see README
+support matrix). devices.json records per-channel `kinds` for the UI.
 
 ## Hard-won constraints (do not silently change)
 
@@ -75,7 +79,8 @@ table is the primary editor; it rewrites entries wholesale on change.
   (mV/mA/mW/mWh); energy attributes are nested `{energy: n}`.
 - **Identity rotation**: accessory identity embeds the effective composition —
   every device (single-channel included) is composed:
-  `uuid(deviceId|bridge|<idx:type,...>)` with part ids `componentId-type`.
+  `uuid(deviceId|bridge|<idx:token,...>)` with part ids `componentId-token`,
+  where token = accessoryType for switches, 'cover'/'dimmer' otherwise.
   ANY composition change (retype, hide)
   rotates the WHOLE accessory (parent included) and the platform unregisters
   the previous identity first. Rationale: Apple Home breaks on same-uniqueId

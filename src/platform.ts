@@ -6,10 +6,10 @@ import { AnsiLogger, LogLevel, TimestampFormat } from 'node-ansi-logger';
 
 import { configForDevice, deviceConfigs } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
-import { accessorySignature, attachComponentUpdates, buildShellyAccessory, cachedAccessoryDeviceId, pushCurrentState, rebuildCachedAccessory, switchComponents } from './shellyAccessory.js';
+import { accessorySignature, attachComponentUpdates, buildShellyAccessory, cachedAccessoryDeviceId, mappedComponents, pushCurrentState, rebuildCachedAccessory } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
-import { isSwitchComponent, type ShellySwitchComponent } from './shelly/shellyComponent.js';
+import type { ShellyComponent } from './shelly/shellyComponent.js';
 import { deepEqual, getErrorMessage } from './shelly/utils/index.js';
 import { WsClient } from './shelly/wsClient.js';
 import { ShellyDevice } from './shelly/shellyDevice.js';
@@ -22,6 +22,8 @@ interface KnownDevice {
   model: string | null;
   name: string | null;
   channels: number | null;
+  /** Component kind per channel ('switch' | 'cover' | 'dimmer'), once the device has connected. */
+  kinds: string[] | null;
 }
 
 const HOST_RETRY_MS = 60_000;
@@ -109,10 +111,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.registeredSignatures.delete(accessory.UUID);
   }
 
-  /** The switch component of a connected device, or undefined while it is offline. */
-  shellySwitchComponent(deviceId: string, componentId: string): ShellySwitchComponent | undefined {
-    const component = this.shelly?.getDevice(deviceId)?.getComponent(componentId);
-    return isSwitchComponent(component) ? component : undefined;
+  /** A component of a connected device, or undefined while it is offline. */
+  shellyComponent(deviceId: string, componentId: string): ShellyComponent | undefined {
+    return this.shelly?.getDevice(deviceId)?.getComponent(componentId);
   }
 
   configureMatterAccessory(accessory: MatterAccessory): void {
@@ -168,7 +169,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
       // Record every sighting - including hidden devices, so the
       // settings UI can list them for un-hiding.
-      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen, model: null, name: null, channels: null });
+      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen, model: null, name: null, channels: null, kinds: null });
       if (this.isHidden(discovered.id, discovered.host)) {
         this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
         return;
@@ -282,6 +283,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       model: entry.model ?? existing?.model ?? null,
       name: entry.name ?? existing?.name ?? null,
       channels: entry.channels ?? existing?.channels ?? null,
+      kinds: entry.kinds ?? existing?.kinds ?? null,
     };
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
@@ -331,14 +333,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   }
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
-    const switches = switchComponents(device);
+    const mapped = mappedComponents(device);
     this.rememberDevice({
       id: device.id,
       host: device.host,
       gen: device.gen,
       model: device.model,
       name: device.name,
-      channels: switches.length,
+      channels: mapped.length,
+      kinds: mapped.map(({ kind }) => kind),
     });
     if (this.isHidden(device.id, device.host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);

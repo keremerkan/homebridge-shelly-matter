@@ -38,15 +38,47 @@ power and energy data — show no consumption on their own tiles. Their usage is
 still measured and included in the Home app's whole-home energy view. If you
 want live wattage on a device's tile, set its accessory type to outlet.
 
-## Supported devices (early release)
+## Device support
+
+Support comes in three tiers. "Tested" means validated against real devices on
+a live Apple Home installation; "untested" means the mapping is implemented by
+faithfully following the same protocol layer the tested devices use, but no
+real device of that kind has been on our bench yet. **If you run an untested
+device, please [report whether it works](https://github.com/keremerkan/homebridge-shelly-matter/issues)** —
+one confirmation moves it to tested.
+
+### Supported and tested
 
 - **Shelly Gen 2/3 relays and plugs** (Plus/Pro 1, 1PM, 2PM in switch profile, Plus Plug S, …)
-  - On/off control
+  - On/off control (as light, outlet, or switch — configurable per channel)
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
-- Multi-channel devices appear as a single grouped accessory, with a separate control per channel (each channel's type is set independently).
+- Multi-channel devices appear as a single grouped accessory, with a separate control per channel.
 
-Devices without supported components are discovered but skipped with a log message. Covers, dimmers, RGB, sensors, Gen 1 and BLU devices are on the roadmap — the underlying protocol layer already speaks CoIoT (Gen 1), WebSocket RPC (Gen 2+), and mDNS discovery.
+### Supported, not yet tested on real hardware
+
+- **Covers / rollers** (2PM in cover profile, Plus Shutter, Gen 1 rollers): open/close/stop,
+  target position, position and movement state, power metering where the device measures it.
+- **Dimmers** (Shelly Dimmer/Dimmer 2, Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer):
+  on/off and brightness.
+- **Gen 1 relays** (Shelly 1, 1PM, 2.5 in relay mode, Gen 1 plugs): on/off over CoIoT.
+  Gen 1 power metering is not mapped yet.
+
+### Could be supported — ask for it
+
+The vendored protocol layer already parses these; they need (and will get) a
+Matter mapping. [Open an issue](https://github.com/keremerkan/homebridge-shelly-matter/issues)
+if you own one and want it prioritized — we can usually provide a beta build to test:
+
+- RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
+- Sensors: H&T (temperature/humidity), Flood, Door/Window, Motion, Smoke — including battery level
+- Buttons and inputs (i3, i4, wall inputs) as stateless switches
+- Standalone energy meters (EM, 3EM, Pro EM, PM Mini)
+- TRV / thermostats, and BLU devices via a Shelly BLE gateway
+
+Not mappable to Matter: gas sensors (no Matter device type), vibration.
+
+Devices without supported components are discovered but skipped with a log message.
 
 ## Configuration
 
@@ -75,7 +107,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `device` — the device id. One entry per physical device.
 - `host` — IP address/hostname; needed for devices mDNS cannot find, or for every device when mDNS discovery is disabled (they are added directly).
 - `name` — the name shown in the Home app.
-- `accessoryType` — `light`, `outlet`, or `switch`. Defaults: plugs are outlets, wired relay devices are lights.
+- `accessoryType` — `light`, `outlet`, or `switch`. Applies to relay/switch channels only (covers and dimmers have a fixed type). Defaults: plugs are outlets, wired relay devices are lights.
 - `hidden` — set `true` to not expose the device (or a channel) to Matter at all.
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `accessoryType`, `hidden`. The device `name` applies to the whole device; individual channel tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.

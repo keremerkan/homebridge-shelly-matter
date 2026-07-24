@@ -7,9 +7,13 @@ import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, 
  * they are importable for tests without starting the UI server.
  */
 
+/** Component kinds newly supported but not yet validated on real hardware; the UI badges them. */
+const UNTESTED_KINDS = ['cover', 'dimmer'];
+
 /**
  * Everything the settings table needs per device. Takes the UI's current
- * (possibly unsaved) config so edits resolve live.
+ * (possibly unsaved) config so edits resolve live. Switch channels carry a
+ * configurable type; cover/dimmer channels have a fixed kind (no dropdown).
  */
 export function deviceView({ config, devices } = {}) {
   const platformConfig = config && typeof config === 'object' ? config : {};
@@ -18,17 +22,21 @@ export function deviceView({ config, devices } = {}) {
     .map((device) => {
       const entry = configForDevice(platformConfig, device.id, device.host);
       const channelCount = Number(device.channels) > 1 ? Number(device.channels) : 0;
+      const kindOf = (channel) => (Array.isArray(device.kinds) ? device.kinds[channel] : undefined) ?? 'switch';
+      const typeOf = (channel) => (kindOf(channel ?? 0) === 'switch' ? resolveAccessoryType(platformConfig, device.id, device.host, channel) : kindOf(channel ?? 0));
       return {
         id: device.id,
+        kind: kindOf(0),
         defaultType: defaultAccessoryType(device.id),
-        type: resolveAccessoryType(platformConfig, device.id, device.host),
-        channelTypes: Array.from({ length: channelCount }, (_, i) => resolveAccessoryType(platformConfig, device.id, device.host, i)),
+        type: typeOf(undefined),
+        channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
+        channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
         channelsHidden: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.hidden === true),
         name: entry?.name ?? '',
         hidden: entry?.hidden === true,
       };
     });
-  return { types: [...ACCESSORY_TYPES], rows };
+  return { types: [...ACCESSORY_TYPES], untested: UNTESTED_KINDS, rows };
 }
 
 /**
@@ -66,11 +74,16 @@ export function applyView({ config, devices, selections } = {}) {
     // Power metering is configured in the schema form, not the table - carry it over.
     if (prior?.powerMetering === false) entry.powerMetering = false;
     if (sel?.hidden === true) entry.hidden = true;
-    const channels = (Array.isArray(sel?.channels) ? sel.channels : []).map(({ channel, type, hidden }) => {
-      const channelEntry = { channel, accessoryType: type };
-      if (hidden === true) channelEntry.hidden = true;
-      return channelEntry;
-    });
+    // Cover/dimmer channels have no type dropdown, so their selections carry
+    // no type; record them only when something (hidden) is actually set.
+    const channels = (Array.isArray(sel?.channels) ? sel.channels : [])
+      .map(({ channel, type, hidden }) => {
+        const channelEntry = { channel };
+        if (type) channelEntry.accessoryType = type;
+        if (hidden === true) channelEntry.hidden = true;
+        return channelEntry;
+      })
+      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden === true);
     if (channels.length > 0) entry.channels = channels;
     rebuilt.push(entry);
   }
