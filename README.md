@@ -23,10 +23,41 @@ its Matter node online. Both are fixed in Homebridge core, but the fixes are
 - **[homebridge/homebridge#3973](https://github.com/homebridge/homebridge/pull/3973)** — defer the Matter node coming online until registrations settle, and keep controller subscriptions alive across restarts. Without it, bridged devices may drop to "No Response" and lose their room assignments after a Homebridge restart.
 - **[homebridge/homebridge#3974](https://github.com/homebridge/homebridge/issues/3974)** — surface commissioned controllers (fabrics) in the Homebridge UI. Until then this plugin shows them in its own settings page ("Connected controllers").
 
-Until these ship in a Homebridge release, run a Homebridge build that includes
-them (e.g. the maintainer's beta once merged, or a local build of the PR
-branches). This requirement will be replaced by a concrete
-`engines.homebridge` version floor once a release contains the fixes.
+### Running Homebridge with the fixes today
+
+Until the fixes ship in an official Homebridge release, a **prebuilt Homebridge
+package** containing them (current 2.2.2 beta + both PRs, full test suite
+passing) is available from
+[keremerkan/homebridge releases](https://github.com/keremerkan/homebridge/releases) —
+download `homebridge-2.2.2-fixes.1.tgz` and install it **over your existing
+Homebridge**:
+
+- **npm-based installs** (`npm install -g homebridge`):
+
+  ```sh
+  sudo npm install -g ./homebridge-2.2.2-fixes.1.tgz
+  ```
+
+- **Official Debian / Raspberry Pi package or `hb-service` installs** (Homebridge
+  lives under the storage path, with Node in `/opt/homebridge`):
+
+  ```sh
+  sudo env PATH=/opt/homebridge/bin:$PATH \
+      npm --prefix /var/lib/homebridge install ./homebridge-2.2.2-fixes.1.tgz
+  sudo systemctl restart homebridge   # or: sudo hb-service restart
+  ```
+
+- **Docker** (official image): run the same `npm --prefix /var/lib/homebridge install …`
+  inside the container (`docker exec -it homebridge sh`), then restart the container.
+
+After restarting, the Homebridge UI should report version **`2.2.2-fixes.1`**.
+To build from source instead: clone the
+[`beta-2.2.2-with-fixes`](https://github.com/keremerkan/homebridge/tree/beta-2.2.2-with-fixes)
+branch, then `npm ci && npm run build && npm pack` and install the resulting tarball as above.
+
+Two caveats: updating Homebridge from the UI **replaces this build** (re-install
+the tarball afterwards), and this whole section will be replaced by a plain
+`engines.homebridge` version floor once an official release contains the fixes.
 
 These are also **Apple Home** behaviours, not plugin bugs: the same 30-second
 control-loss and stranded-fabric issues are being reported to Apple separately.

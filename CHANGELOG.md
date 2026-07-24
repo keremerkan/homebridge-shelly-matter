@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-24
+
+### Added
+
+- **Cover / roller support** (untested tier): Shelly covers (2PM in cover profile, Plus Shutter, Gen 1 rollers) are exposed as Matter window coverings with open/close/stop, target position, live position and movement state, and power metering where the device measures it.
+- **Dimmer support** (untested tier): Shelly dimmers (Dimmer/Dimmer 2, Plus Wall Dimmer, 0-10V, Dimmer Gen3, Pro Dimmer) are exposed as Matter dimmable lights with on/off and brightness.
+- Three-tier device support matrix in the README (tested / supported-untested / could-be-supported) with an issue-tracker call for reports from owners of untested devices.
+- The settings UI marks cover and dimmer channels with their fixed kind and an "untested" badge, and links to the issue tracker.
+
+### Changed
+
+- The settings UI computes all configuration rules server-side (`/device-view` and `/apply-view`); the browser page is pure presentation, so the UI can never disagree with what the plugin registers.
+- The config schema no longer forces an accessory type with a `light` default; an unset type now correctly means the kind-based default (outlet for plugs, light otherwise).
+- Power-metering gating, property mapping, and unregistration bookkeeping consolidated after a code-quality review; the state-update hot path got cheaper (O(1) property lookup, energy conversions skipped while throttled).
+
+### Fixed
+
+- A `{ "host": ..., "hidden": true }` entry now hides its device on the mDNS discovery path too; previously the hidden flag was only honored when the device was added by IP.
+
+### Known issues
+
+- Still requires the pending Homebridge core Matter fixes (see the README's "Known issues"). A prebuilt Homebridge package containing them is available from [keremerkan/homebridge releases](https://github.com/keremerkan/homebridge/releases), with install instructions in the README.
+
 ## [0.1.1] - 2026-07-24
 
 ### Changed

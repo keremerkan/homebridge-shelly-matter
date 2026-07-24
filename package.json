@@ -1,7 +1,7 @@
 {
   "name": "homebridge-shelly-matter",
   "displayName": "Homebridge Shelly Matter",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Expose Shelly devices to Apple Home over Matter through Homebridge 2 — including live power and energy metering (iOS 27+).",
   "author": "Kerem Erkan <kerem@ake.dev>",
   "type": "module",
