@@ -48,3 +48,17 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
  * 'plug' in the device id.
  */
 export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') ? 'outlet' : 'light');
+
+/**
+ * Channel setting wins over the device setting, which wins over the kind-based
+ * default. The single source of these rules - the platform resolves accessory
+ * types through it, and the settings UI server does too, so the two can never
+ * disagree.
+ */
+export function resolveAccessoryType(config: PlatformConfig, deviceId: string, host?: string, channel?: number): AccessoryType {
+  const entry = configForDevice(config, deviceId, host);
+  const channelEntry = channel === undefined ? undefined : channelConfig(entry, channel);
+  if (channelEntry?.accessoryType && ACCESSORY_TYPES.includes(channelEntry.accessoryType)) return channelEntry.accessoryType;
+  if (entry?.accessoryType && ACCESSORY_TYPES.includes(entry.accessoryType)) return entry.accessoryType;
+  return defaultAccessoryType(deviceId);
+}

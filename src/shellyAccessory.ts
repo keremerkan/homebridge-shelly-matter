@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { ACCESSORY_TYPES, type AccessoryType, channelConfig, configForDevice, defaultAccessoryType } from './deviceConfig.js';
+import { ACCESSORY_TYPES, type AccessoryType, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType as resolveConfiguredAccessoryType } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isSwitchComponent, type ShellyComponent, type ShellySwitchComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -68,13 +68,9 @@ export function switchComponents(device: ShellyDevice): ShellySwitchComponent[] 
   return components;
 }
 
-/** Channel setting wins over the device setting, which wins over the kind-based default. */
+/** The shared resolution rule from deviceConfig, bound to a live component. */
 function resolveAccessoryType(platform: ShellyMatterPlatform, device: ShellyDevice, component: ShellyComponent): AccessoryType {
-  const entry = configForDevice(platform.config, device.id, device.host);
-  const channel = channelConfig(entry, component.index);
-  if (channel?.accessoryType && ACCESSORY_TYPES.includes(channel.accessoryType)) return channel.accessoryType;
-  if (entry?.accessoryType && ACCESSORY_TYPES.includes(entry.accessoryType)) return entry.accessoryType;
-  return defaultAccessoryType(device.id);
+  return resolveConfiguredAccessoryType(platform.config, device.id, device.host, component.index);
 }
 
 function meteringEnabled(platform: ShellyMatterPlatform, device: ShellyDevice): boolean {

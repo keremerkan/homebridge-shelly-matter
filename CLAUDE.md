@@ -24,10 +24,12 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   was too noisy at info. Do not refactor or "improve" this layer.
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
-- `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`), plain
-  browser JS; it intentionally duplicates the type-resolution rules from
-  `deviceConfig.ts` because it cannot import TS. Keep them in sync by hand
-  (candidate improvement: have `server.js` compute effective types instead).
+- `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).
+  `server.js` imports the compiled `dist/deviceConfig.js` and computes the
+  settings table rows (`/device-view`: effective/default types, entry
+  name/hidden/host/powerMetering) with the plugin's own rules; the browser
+  page is pure presentation and holds no copy of the config rules. This means
+  the UI needs `dist/` built to work.
 - `patches/` — dist-level diffs of the local Homebridge patch (see below) and
   the upstream PR materials.
 - `UPSTREAM-ISSUES.md` — evidence log of all Homebridge Matter bugs found.
@@ -151,7 +153,6 @@ failure with no retry, dropped parts-list notifications).
 
 ## Release checklist (pre-publish)
 
-- Unify UI/TS type-resolution rules (or server-computed effective types)
 - Test on live server + real devices before any npm publish (user publishes)
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already
