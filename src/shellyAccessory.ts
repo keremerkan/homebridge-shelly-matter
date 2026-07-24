@@ -29,17 +29,20 @@ const PROPERTY_MAP: {
   cluster: string;
   attribute: string;
   convert: (value: ShellyDataType) => unknown;
+  /** Only forwarded when the device's power metering is enabled. */
+  metered?: boolean;
   throttled?: boolean;
 }[] = [
   { property: 'state', cluster: 'onOff', attribute: 'onOff', convert: (v) => (typeof v === 'boolean' ? v : undefined) },
-  { property: 'apower', cluster: 'electricalPowerMeasurement', attribute: 'activePower', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined) },
-  { property: 'voltage', cluster: 'electricalPowerMeasurement', attribute: 'voltage', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined) },
-  { property: 'current', cluster: 'electricalPowerMeasurement', attribute: 'activeCurrent', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined) },
+  { property: 'apower', cluster: 'electricalPowerMeasurement', attribute: 'activePower', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
+  { property: 'voltage', cluster: 'electricalPowerMeasurement', attribute: 'voltage', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
+  { property: 'current', cluster: 'electricalPowerMeasurement', attribute: 'activeCurrent', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
   {
     property: 'aenergy',
     cluster: 'electricalEnergyMeasurement',
     attribute: 'cumulativeEnergyImported',
     convert: (v) => (isValidObject(v) && isValidNumber((v as ShellyData).total, 0) ? { energy: milli((v as ShellyData).total as number) } : undefined),
+    metered: true,
     throttled: true,
   },
   {
@@ -47,9 +50,12 @@ const PROPERTY_MAP: {
     cluster: 'electricalEnergyMeasurement',
     attribute: 'cumulativeEnergyExported',
     convert: (v) => (isValidObject(v) && isValidNumber((v as ShellyData).total, 0) ? { energy: milli((v as ShellyData).total as number) } : undefined),
+    metered: true,
     throttled: true,
   },
 ];
+
+const PROPERTY_BY_NAME = new Map(PROPERTY_MAP.map((entry) => [entry.property, entry]));
 
 /**
  * Part ids must avoid ':' and embed the accessory type: a type change then
@@ -90,10 +96,11 @@ function matterDeviceTypeFor(platform: ShellyMatterPlatform, accessoryType: Acce
 
 /** Initial cluster state for one switch component, with electrical clusters when the component meters. */
 function clustersFor(component: ShellyComponent, metering: boolean): Record<string, ClusterState> {
-  const clusters: Record<string, ClusterState> = { onOff: { onOff: component.getValue('state') === true } };
-  if (!metering) return clusters;
+  // onOff must always exist (it is the registration-verify probe), so seed it
+  // off and let the map's own state row overwrite it when the device reports.
+  const clusters: Record<string, ClusterState> = { onOff: { onOff: false } };
   for (const entry of PROPERTY_MAP) {
-    if (entry.cluster === 'onOff' || !component.hasProperty(entry.property)) continue;
+    if ((entry.metered && !metering) || !component.hasProperty(entry.property)) continue;
     const value = entry.convert(component.getValue(entry.property));
     if (value === undefined) continue;
     (clusters[entry.cluster] ??= {})[entry.attribute] = value;
@@ -105,7 +112,7 @@ function clustersFor(component: ShellyComponent, metering: boolean): Record<stri
  * Handlers resolve the component at invocation time so they also work on
  * accessories re-registered from the cache before the device has connected.
  */
-function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId?: string) {
+function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId: string) {
   const setOnOff = (on: boolean): void => {
     const component = platform.shellySwitchComponent(deviceId, componentId);
     if (!component) {
@@ -148,26 +155,19 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
   const entry = configForDevice(platform.config, device.id, device.host);
   const displayName = entry?.name ?? device.name;
   const metering = meteringEnabled(platform, device);
+  // Each component's type is resolved exactly once and feeds both the
+  // identity seed and the part construction, so the two cannot drift.
+  const typed = visible.map((component) => ({ component, type: resolveAccessoryType(platform, device, component) }));
   // Identity embeds the effective composition (visible channels and their
   // types) so ANY composition change - retyping a channel, hiding one -
   // rotates the accessory identity, parent included. Controllers then see a
   // clean remove+add; a parent that keeps its identity while its children
   // change becomes an uneditable "Not Supported" husk in Apple Home.
-  const uuid = platform.matter.uuid.generate(`${device.id}|bridge|${visible.map((component) => `${component.index}:${resolveAccessoryType(platform, device, component)}`).join(',')}`);
-  const base = {
-    UUID: uuid,
-    displayName,
-    serialNumber: device.mac,
-    manufacturer: 'Shelly',
-    model: device.model,
-    firmwareRevision: device.firmware,
-    context: {},
-  };
+  const uuid = platform.matter.uuid.generate(`${device.id}|bridge|${typed.map(({ component, type }) => `${component.index}:${type}`).join(',')}`);
 
   const partTypes: Record<string, AccessoryType> = {};
   const partComponents: Record<string, string> = {};
-  const parts: MatterAccessoryPart[] = visible.map((component) => {
-    const type = resolveAccessoryType(platform, device, component);
+  const parts: MatterAccessoryPart[] = typed.map(({ component, type }) => {
     const partId = partIdFor(component, type);
     partTypes[partId] = type;
     partComponents[partId] = component.id;
@@ -184,7 +184,12 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
   });
   const context: ShellyAccessoryContext = { deviceId: device.id, partTypes, partComponents };
   return {
-    ...base,
+    UUID: uuid,
+    displayName,
+    serialNumber: device.mac,
+    manufacturer: 'Shelly',
+    model: device.model,
+    firmwareRevision: device.firmware,
     context,
     deviceType: platform.matter.deviceTypes.BridgedNode,
     parts,
@@ -216,13 +221,16 @@ export function rebuildCachedAccessory(platform: ShellyMatterPlatform, cached: M
   return { ...cached, deviceType: platform.matter.deviceTypes.BridgedNode, parts };
 }
 
-/** Structural signature to decide whether a live device matches its cached registration. */
+/**
+ * Structural signature to decide whether a live device matches its cached
+ * registration. Compared only in-memory within one process, never persisted.
+ * The root shape is constant (BridgedNode, no root clusters) - only the name
+ * and the parts vary.
+ */
 export function accessorySignature(accessory: MatterAccessory): string {
   const typeName = (deviceType: unknown): string => (deviceType as { name?: string })?.name ?? String(deviceType);
   return JSON.stringify({
     name: accessory.displayName,
-    type: typeName(accessory.deviceType),
-    clusters: Object.keys(accessory.clusters ?? {}).sort(),
     parts: (accessory.parts ?? []).map((part) => ({
       id: part.id,
       name: part.displayName,
@@ -257,16 +265,15 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
     const partId = partIdIn(platform, device, component);
 
     component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
-      const entry = PROPERTY_MAP.find((e) => e.property === property);
-      if (!entry || (entry.cluster !== 'onOff' && !metering)) return;
+      const entry = PROPERTY_BY_NAME.get(property);
+      if (!entry || (entry.metered && !metering)) return;
+      // Check the throttle window before converting so suppressed energy
+      // updates cost nothing; stamp only after a successful conversion.
+      const throttleKey = entry.throttled ? `${component.id}:${property}` : undefined;
+      if (throttleKey !== undefined && Date.now() - (lastEnergyPush.get(throttleKey) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
       const converted = entry.convert(value);
       if (converted === undefined) return;
-      if (entry.throttled) {
-        const key = `${component.id}:${property}`;
-        const now = Date.now();
-        if (now - (lastEnergyPush.get(key) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
-        lastEnergyPush.set(key, now);
-      }
+      if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
       void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, { [entry.attribute]: converted }, partId);
     });
   }

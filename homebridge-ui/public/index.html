@@ -16,64 +16,43 @@
 
 <script>
   (async () => {
-    const LABELS = { light: 'Light', outlet: 'Outlet', switch: 'Switch' };
     let pluginConfig = [];
     let config = {};
     let devices = [];
     // Per-device rows computed by server.js with the plugin's own config rules
-    // (effective/default types, entry name/hidden/host/powerMetering) - this
-    // page holds no copy of those rules.
+    // (effective/default types, entry name/hidden) - this page holds no copy
+    // of the config rules, in either direction: it renders rows and posts
+    // neutral selections back.
     let view = { types: [], rows: new Map() };
 
-    const entries = () => (Array.isArray(config.devices) ? config.devices.filter((e) => e && typeof e === 'object') : []);
     const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const typeLabel = (type) => type.charAt(0).toUpperCase() + type.slice(1);
 
     async function loadView() {
       const { types, rows } = await homebridge.request('/device-view', { config, devices });
       view = { types, rows: new Map(rows.map((row) => [row.id, row])) };
     }
 
-    // Rebuild config.devices from the table - one entry per physical device,
-    // channels nested - preserving entries for devices not in this listing.
-    async function applySelections() {
-      const listedIds = new Set(devices.map((d) => d.id));
-      const listedHosts = new Set(devices.map((d) => d.host));
-      const kept = entries().filter((e) => {
-        if (e.device && listedIds.has(e.device)) return false;
-        if (!e.device && e.host && listedHosts.has(e.host)) return false;
-        return true;
-      });
-
-      const rebuilt = [...kept];
-      for (const device of devices) {
-        const row = view.rows.get(device.id);
-        // Always record the current IP so the plugin keeps working if mDNS
-        // discovery is disabled later; with mDNS on it is harmlessly redundant.
-        const entry = { device: device.id, host: device.host || row?.host };
-        if (!entry.host) delete entry.host;
-
+    /** Harvests the table into neutral selections; server.js rebuilds the entries. */
+    function harvestSelections() {
+      return devices.map((device) => {
+        const sel = { id: device.id };
         const nameInput = document.querySelector(`input[data-name-entry="${device.id}"]`);
-        if (nameInput?.value.trim()) entry.name = nameInput.value.trim();
-        // Write the type explicitly (even when it matches the default) so the
-        // devices list in the schema form shows the effective value, not blank.
-        // Multi-channel devices carry no parent type - each channel has its own.
+        if (nameInput?.value.trim()) sel.name = nameInput.value.trim();
         const select = document.querySelector(`select[data-entry="${device.id}"]`);
-        if (select) entry.accessoryType = select.value;
-        // Power metering is configured in the devices list below, not in this table - carry it over.
-        if (row?.powerMetering === false) entry.powerMetering = false;
-        if (document.querySelector(`input[data-hide="${device.id}"]`)?.checked) entry.hidden = true;
-
-        const channels = [];
-        for (const channelSelect of document.querySelectorAll(`select[data-entry^="${device.id}:"]`)) {
+        if (select) sel.type = select.value;
+        sel.hidden = document.querySelector(`input[data-hide="${device.id}"]`)?.checked === true;
+        sel.channels = [...document.querySelectorAll(`select[data-entry^="${device.id}:"]`)].map((channelSelect) => {
           const channel = Number(channelSelect.dataset.entry.split(':').pop());
-          const channelEntry = { channel, accessoryType: channelSelect.value };
-          if (document.querySelector(`input[data-hide="${device.id}:${channel}"]`)?.checked) channelEntry.hidden = true;
-          channels.push(channelEntry);
-        }
-        if (channels.length > 0) entry.channels = channels;
-        rebuilt.push(entry);
-      }
+          const hidden = document.querySelector(`input[data-hide="${device.id}:${channel}"]`)?.checked === true;
+          return { channel, type: channelSelect.value, hidden };
+        });
+        return sel;
+      });
+    }
 
+    async function applySelections() {
+      const rebuilt = await homebridge.request('/apply-view', { config, devices, selections: harvestSelections() });
       if (rebuilt.length > 0) config.devices = rebuilt;
       else delete config.devices;
 
@@ -86,7 +65,7 @@
       const current = channel === undefined ? row.type : row.channelTypes[channel];
       const key = channel === undefined ? row.id : `${row.id}:${channel}`;
       const options = view.types.map((t) => {
-        const label = LABELS[t] + (t === row.defaultType ? ' (default)' : '');
+        const label = typeLabel(t) + (t === row.defaultType ? ' (default)' : '');
         return `<option value="${t}" ${current === t ? 'selected' : ''}>${label}</option>`;
       }).join('');
       return `<select class="custom-select custom-select-sm" data-entry="${escapeAttr(key)}">${options}</select>`;
@@ -103,8 +82,8 @@
         if (!row) continue;
         const label = device.name && device.name !== device.id ? `${escapeAttr(device.name)} <span class="text-muted">(${escapeAttr(device.id)})</span>` : escapeAttr(device.id);
         const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).map(escapeAttr).join(' · ');
-        const multi = device.channels > 1;
-        const span = multi ? device.channels + 1 : 1;
+        const multi = row.channelTypes.length > 0;
+        const span = multi ? row.channelTypes.length + 1 : 1;
         rows.push(`
           <tr>
             <td rowspan="${span}" style="vertical-align: middle;">
@@ -115,11 +94,9 @@
             <td>${multi ? '<span class="text-muted">per channel</span>' : selectHtml(row)}</td>
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>
-          ${multi
-            ? Array.from({ length: device.channels }, (_, i) =>
-                `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(row, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
-              ).join('')
-            : ''}
+          ${row.channelTypes.map((_, i) =>
+            `<tr><td>channel ${i + 1}</td><td></td><td>${selectHtml(row, i)}</td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
+          ).join('')}
         `);
       }
       document.getElementById('device-table').innerHTML = `

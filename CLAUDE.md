@@ -25,11 +25,12 @@ No HAP accessories are published; the plugin runs best in a child bridge with
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
 - `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).
-  `server.js` imports the compiled `dist/deviceConfig.js` and computes the
-  settings table rows (`/device-view`: effective/default types, entry
-  name/hidden/host/powerMetering) with the plugin's own rules; the browser
-  page is pure presentation and holds no copy of the config rules. This means
-  the UI needs `dist/` built to work.
+  `server.js` imports the compiled `dist/` and owns the config rules in BOTH
+  directions: `/device-view` computes the settings table rows (effective/
+  default types, entry name/hidden) and `/apply-view` rebuilds the `devices`
+  array from the table's neutral selections (entry shape, host auto-fill,
+  channel nesting, powerMetering carry-over). The browser page only renders
+  rows and harvests DOM values. The UI needs `dist/` built to work.
 - `patches/` — dist-level diffs of the local Homebridge patch (see below) and
   the upstream PR materials.
 - `UPSTREAM-ISSUES.md` — evidence log of all Homebridge Matter bugs found.
@@ -58,8 +59,8 @@ table is the primary editor; it rewrites entries wholesale on change.
   error; polling first prevents it.
 - **Cache-shell registration at `didFinishLaunching`**: accessories are
   re-registered from `configureMatterAccessory` shells BEFORE discovery, using
-  the serializable `context` ({deviceId, type, component/partTypes/
-  partComponents}). Handlers bind lazily (component resolved at command time).
+  the serializable `context` ({deviceId, partTypes, partComponents}).
+  Handlers bind lazily (component resolved at command time).
   On device connect, `accessorySignature` decides: match → `pushCurrentState`
   only; differ → unregister+register. Combined with the Homebridge patch this
   keeps the bridge parts list complete across restarts.
@@ -73,8 +74,9 @@ table is the primary editor; it rewrites entries wholesale on change.
   attribute mapping (snapshot AND live updates). Matter wants milli-units
   (mV/mA/mW/mWh); energy attributes are nested `{energy: n}`.
 - **Identity rotation**: accessory identity embeds the effective composition —
-  singles `uuid(deviceId|type)`, multis `uuid(deviceId|bridge|<idx:type,...>)`
-  with part ids `componentId-type`. ANY composition change (retype, hide)
+  every device (single-channel included) is composed:
+  `uuid(deviceId|bridge|<idx:type,...>)` with part ids `componentId-type`.
+  ANY composition change (retype, hide)
   rotates the WHOLE accessory (parent included) and the platform unregisters
   the previous identity first. Rationale: Apple Home breaks on same-uniqueId
   reappearances — uneditable settings pane, or an undeletable "Not Supported"

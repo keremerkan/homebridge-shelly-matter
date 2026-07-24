@@ -3,8 +3,9 @@ import { join } from 'node:path';
 
 import { HomebridgePluginUiServer } from '@homebridge/plugin-ui-utils';
 
-import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType } from '../dist/deviceConfig.js';
+import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME } from '../dist/settings.js';
 import { MdnsScanner } from '../dist/shelly/mdnsScanner.js';
+import { applyView, deviceView } from './view.js';
 
 const SCAN_DURATION_MS = 5000;
 const RPC_TIMEOUT_MS = 2500;
@@ -27,36 +28,9 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     this.onRequest('/devices', () => this.knownDevices());
     this.onRequest('/scan', () => this.scan());
     this.onRequest('/fabrics', () => this.fabrics());
-    this.onRequest('/device-view', (payload) => this.deviceView(payload));
+    this.onRequest('/device-view', (payload) => deviceView(payload));
+    this.onRequest('/apply-view', (payload) => applyView(payload));
     this.ready();
-  }
-
-  /**
-   * Everything the settings table needs per device, resolved with the plugin's
-   * own config rules (dist/deviceConfig.js) - the browser page stays pure
-   * presentation and can never drift from what the platform will register.
-   * Takes the UI's current (possibly unsaved) config so edits resolve live.
-   */
-  deviceView({ config, devices } = {}) {
-    const platformConfig = config && typeof config === 'object' ? config : {};
-    const rows = (Array.isArray(devices) ? devices : [])
-      .filter((device) => typeof device?.id === 'string')
-      .map((device) => {
-        const entry = configForDevice(platformConfig, device.id, device.host);
-        const channelCount = Number(device.channels) > 1 ? Number(device.channels) : 0;
-        return {
-          id: device.id,
-          defaultType: defaultAccessoryType(device.id),
-          type: resolveAccessoryType(platformConfig, device.id, device.host),
-          channelTypes: Array.from({ length: channelCount }, (_, i) => resolveAccessoryType(platformConfig, device.id, device.host, i)),
-          channelsHidden: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.hidden === true),
-          name: entry?.name ?? '',
-          hidden: entry?.hidden === true,
-          host: entry?.host,
-          powerMetering: entry?.powerMetering,
-        };
-      });
-    return { types: [...ACCESSORY_TYPES], rows };
   }
 
   /**
@@ -67,7 +41,7 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
   async fabrics() {
     try {
       const config = JSON.parse(await readFile(this.homebridgeConfigPath, 'utf8'));
-      const platform = (config.platforms ?? []).find((p) => p.platform === 'ShellyMatter');
+      const platform = (config.platforms ?? []).find((p) => p.platform === PLATFORM_NAME);
       const username = platform?._bridge?.username;
       if (!username) return [];
       const bridgeId = username.replace(/:/g, '');
@@ -113,7 +87,7 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
   /** Devices the running platform has seen, persisted to devices.json. */
   async knownDevices() {
     try {
-      const file = join(this.homebridgeStoragePath, 'shelly-matter', 'devices.json');
+      const file = join(this.homebridgeStoragePath, DATA_DIR, DEVICES_FILE);
       const devices = JSON.parse(await readFile(file, 'utf8'));
       return Array.isArray(devices) ? devices : [];
     } catch {

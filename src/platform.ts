@@ -5,7 +5,7 @@ import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, P
 import { AnsiLogger, LogLevel, TimestampFormat } from 'node-ansi-logger';
 
 import { configForDevice, deviceConfigs } from './deviceConfig.js';
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import { accessorySignature, attachComponentUpdates, buildShellyAccessory, cachedAccessoryDeviceId, pushCurrentState, rebuildCachedAccessory, switchComponents } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
@@ -35,6 +35,8 @@ const ATTACH_SETTLE_MS = 1000;
 // so holding our queue back briefly costs nothing: only command handlers
 // attach a few seconds later.
 const REESTABLISH_QUIET_MS = 5000;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   readonly matterAccessories = new Map<string, MatterAccessory>();
@@ -89,6 +91,24 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   /** HAP accessories are not used by this plugin. */
   configureAccessory(): void {}
 
+  /**
+   * Appends work to the serialized registration queue. The queue must never
+   * reject (a rejected tail would wedge every later registration), so every
+   * append routes its error into the log here.
+   */
+  private enqueue(errorLabel: string, task: () => Promise<void> | void): void {
+    this.registrationQueue = this.registrationQueue
+      .then(task)
+      .catch((error: unknown) => this.log.error(`${errorLabel}: ${getErrorMessage(error)}`));
+  }
+
+  /** The unregister mirror of registerVerified's bookkeeping: drops every record of the accessory. */
+  private async unregisterAccessory(accessory: MatterAccessory): Promise<void> {
+    await this.matter.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    this.matterAccessories.delete(accessory.UUID);
+    this.registeredSignatures.delete(accessory.UUID);
+  }
+
   /** The switch component of a connected device, or undefined while it is offline. */
   shellySwitchComponent(deviceId: string, componentId: string): ShellySwitchComponent | undefined {
     const component = this.shelly?.getDevice(deviceId)?.getComponent(componentId);
@@ -103,14 +123,14 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private async start(): Promise<void> {
     if (!this.shelly) return;
 
-    const dataPath = path.join(this.api.user.storagePath(), 'shelly-matter');
+    const dataPath = path.join(this.api.user.storagePath(), DATA_DIR);
     await fs.mkdir(dataPath, { recursive: true });
     this.shelly.dataPath = dataPath;
     this.dataPath = dataPath;
 
     // Hold all Matter registrations back until matter.js's subscription
     // re-establishment window has passed (see REESTABLISH_QUIET_MS).
-    this.registrationQueue = this.registrationQueue.then(() => new Promise((resolve) => setTimeout(resolve, REESTABLISH_QUIET_MS)));
+    this.enqueue('Registration queue', () => sleep(REESTABLISH_QUIET_MS));
 
     // Re-register cached accessories so the bridge comes up with a complete
     // parts list. Without this the paired controller briefly sees an empty
@@ -121,21 +141,17 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       if (deviceId === undefined) continue;
       if (this.isHidden(deviceId)) {
         // Remove hidden devices from bridge and cache.
-        this.registrationQueue = this.registrationQueue
-          .then(() => this.matter.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [cached]))
-          .catch((error: unknown) => this.log.error(`Failed to unregister hidden Shelly ${deviceId}: ${getErrorMessage(error)}`));
+        this.enqueue(`Failed to unregister hidden Shelly ${deviceId}`, () => this.unregisterAccessory(cached));
         continue;
       }
       const shell = rebuildCachedAccessory(this, cached);
       if (!shell) continue;
-      this.registrationQueue = this.registrationQueue
-        .then(async () => {
-          this.log.info(`Registering ${shell.displayName} from cache.`);
-          if (await this.registerVerified(shell, shell.displayName)) {
-            this.uuidByDevice.set(deviceId, shell.UUID);
-          }
-        })
-        .catch((error: unknown) => this.log.error(`Failed to register cached Shelly ${deviceId}: ${getErrorMessage(error)}`));
+      this.enqueue(`Failed to register cached Shelly ${deviceId}`, async () => {
+        this.log.info(`Registering ${shell.displayName} from cache.`);
+        if (await this.registerVerified(shell, shell.displayName)) {
+          this.uuidByDevice.set(deviceId, shell.UUID);
+        }
+      });
     }
 
     this.shelly.on('discovered', (discovered: DiscoveredDevice) => {
@@ -153,7 +169,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // Record every sighting - including hidden devices, so the
       // settings UI can list them for un-hiding.
       this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen, model: null, name: null, channels: null });
-      if (this.isHidden(discovered.id)) {
+      if (this.isHidden(discovered.id, discovered.host)) {
         this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
         return;
       }
@@ -179,11 +195,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // Serialize registrations: concurrent parts-list changes race matter.js
       // endpoint locks ("Cannot lock ... synchronously") when devices come
       // online together, and controllers can miss the dropped notification.
-      this.registrationQueue = this.registrationQueue
-        .then(() => this.registerDevice(device))
-        .catch((error: unknown) => {
-          this.log.error(`Failed to register Shelly ${device.id}: ${getErrorMessage(error)}`);
-        });
+      this.enqueue(`Failed to register Shelly ${device.id}`, () => this.registerDevice(device));
     });
 
     for (const entry of deviceConfigs(this.config)) {
@@ -229,12 +241,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * back and retried until the server is ready.
    */
   private async registerVerified(accessory: MatterAccessory, label: string): Promise<boolean> {
-    // Every accessory is composed, so confirm registration by reading an
-    // attribute the first part actually declares (not a root cluster).
+    // Every accessory this plugin builds is composed with onOff on every
+    // part - confirm registration by reading the first part's first cluster.
     const part = accessory.parts?.[0];
-    const probe = { cluster: Object.keys(part?.clusters ?? { onOff: {} })[0], partId: part?.id };
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probe.cluster, probe.partId)) !== undefined;
+    const probeCluster = part ? Object.keys(part.clusters)[0] : 'onOff';
+    const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probeCluster, part?.id)) !== undefined;
 
     for (let attempt = 1; attempt <= 8 && !this.stopped; attempt++) {
       try {
@@ -288,7 +299,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       this.saveTimer = undefined;
       this.saveQueue = this.saveQueue
         .then(async () => {
-          const file = path.join(this.dataPath, 'devices.json');
+          const file = path.join(this.dataPath, DEVICES_FILE);
           await fs.writeFile(`${file}.tmp`, JSON.stringify([...this.knownDevices.values()], null, 2));
           await fs.rename(`${file}.tmp`, file);
         })
@@ -314,8 +325,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     }, ATTACH_SETTLE_MS);
   }
 
-  private isHidden(deviceId: string): boolean {
-    return configForDevice(this.config, deviceId)?.hidden === true;
+  /** Passes host through so host-only entries hide their device on every discovery path. */
+  private isHidden(deviceId: string, host?: string): boolean {
+    return configForDevice(this.config, deviceId, host)?.hidden === true;
   }
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
@@ -328,7 +340,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: device.name,
       channels: switches.length,
     });
-    if (this.isHidden(device.id)) {
+    if (this.isHidden(device.id, device.host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
       return;
     }
@@ -345,9 +357,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       const stale = this.matterAccessories.get(previousUuid);
       if (stale) {
         this.log.info(`Shelly ${device.id} identity rotated (accessory type changed) - removing previous registration.`);
-        await this.matter.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [stale]);
-        this.matterAccessories.delete(previousUuid);
-        this.registeredSignatures.delete(previousUuid);
+        await this.unregisterAccessory(stale);
       }
     }
     this.uuidByDevice.set(device.id, accessory.UUID);
@@ -362,7 +372,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       if (registered !== undefined) {
         this.log.info(`Shelly ${device.id} changed since its cached registration - re-registering.`);
         const cached = this.matterAccessories.get(accessory.UUID);
-        if (cached) await this.matter.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [cached]);
+        if (cached) await this.unregisterAccessory(cached);
       }
       this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
       if (!(await this.registerVerified(accessory, accessory.displayName))) return;

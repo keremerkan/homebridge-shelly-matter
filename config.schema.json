@@ -40,10 +40,8 @@
               "type": "string"
             },
             "accessoryType": {
-              "title": "Accessory type",
+              "title": "Accessory type (empty = default: outlet for plugs, light otherwise)",
               "type": "string",
-              "required": true,
-              "default": "light",
               "oneOf": [
                 { "title": "Light", "enum": ["light"] },
                 { "title": "Outlet", "enum": ["outlet"] },
@@ -77,10 +75,8 @@
                     "minimum": 0
                   },
                   "accessoryType": {
-                    "title": "Accessory type",
+                    "title": "Accessory type (empty = device setting)",
                     "type": "string",
-                    "required": true,
-                    "default": "light",
                     "oneOf": [
                       { "title": "Light", "enum": ["light"] },
                       { "title": "Outlet", "enum": ["outlet"] },
