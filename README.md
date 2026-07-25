@@ -29,13 +29,13 @@ Until the fixes ship in an official Homebridge release, a **prebuilt Homebridge
 package** containing them (current 2.2.2 beta + both PRs, full test suite
 passing) is available from
 [keremerkan/homebridge releases](https://github.com/keremerkan/homebridge/releases) —
-download `homebridge-2.2.2-fixes.1.tgz` and install it **over your existing
+download `homebridge-2.2.2-fixes.2.tgz` and install it **over your existing
 Homebridge**:
 
 - **npm-based installs** (`npm install -g homebridge`):
 
   ```sh
-  sudo npm install -g ./homebridge-2.2.2-fixes.1.tgz
+  sudo npm install -g ./homebridge-2.2.2-fixes.2.tgz
   ```
 
 - **Official Debian / Raspberry Pi package or `hb-service` installs** (Homebridge
@@ -43,14 +43,14 @@ Homebridge**:
 
   ```sh
   sudo env PATH=/opt/homebridge/bin:$PATH \
-      npm --prefix /var/lib/homebridge install ./homebridge-2.2.2-fixes.1.tgz
+      npm --prefix /var/lib/homebridge install ./homebridge-2.2.2-fixes.2.tgz
   sudo systemctl restart homebridge   # or: sudo hb-service restart
   ```
 
 - **Docker** (official image): run the same `npm --prefix /var/lib/homebridge install …`
   inside the container (`docker exec -it homebridge sh`), then restart the container.
 
-After restarting, the Homebridge UI should report version **`2.2.2-fixes.1`**.
+After restarting, the Homebridge UI should report version **`2.2.2-fixes.2`**.
 To build from source instead: clone the
 [`beta-2.2.2-with-fixes`](https://github.com/keremerkan/homebridge/tree/beta-2.2.2-with-fixes)
 branch, then `npm ci && npm run build && npm pack` and install the resulting tarball as above.
