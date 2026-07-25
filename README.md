@@ -91,7 +91,16 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
     { "device": "shellyplus1-441793DDEEFF", "accessoryType": "switch" },
     {
       "device": "shellypro2pm-EC62AABBCC",
+      "name": "Garage",
+      "channels": [
+        { "channel": 0, "name": "Garage Light" },
+        { "channel": 1, "name": "Garage Door", "accessoryType": "switch" }
+      ]
+    },
+    {
+      "device": "shellypro2pm-EC62DDEEFF",
       "name": "Cinema",
+      "splitChannels": false,
       "channels": [
         { "channel": 1, "accessoryType": "switch", "hidden": true }
       ]
