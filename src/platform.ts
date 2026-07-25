@@ -5,7 +5,7 @@ import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, P
 import { AnsiLogger, LogLevel, TimestampFormat } from 'node-ansi-logger';
 
 import { configForDevice, deviceConfigs } from './deviceConfig.js';
-import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import { accessorySignature, attachComponentUpdates, buildShellyAccessory, cachedAccessoryDeviceId, mappedComponents, pushCurrentState, rebuildCachedAccessory } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
@@ -62,12 +62,21 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     readonly config: PlatformConfig,
     readonly api: API,
   ) {
-    if (!api.isMatterAvailable?.() || !api.matter) {
-      log.error('This plugin requires Homebridge v2.2.0 or later with Matter support.');
+    if (!api.versionGreaterOrEqual?.(MIN_HOMEBRIDGE)) {
+      log.error(
+        `This plugin requires Homebridge v${MIN_HOMEBRIDGE} or later - you are running v${api.serverVersion}, `
+        + 'whose Matter support is missing fixes the plugin depends on (Apple Home would stop responding ~30s after pairing). '
+        + 'Until Homebridge 2.2.2 stable is out, install the beta: sudo npm install -g homebridge@beta',
+      );
       return;
     }
-    if (!api.isMatterEnabled?.()) {
-      log.warn('Matter is not enabled in Homebridge. Add a "matter" block to your bridge config to use this plugin.');
+    if (!api.isMatterAvailable?.() || !api.matter || !api.isMatterEnabled?.()) {
+      log.warn(
+        'Matter is not enabled on this bridge. This is a Matter-only plugin (it publishes no HAP accessories) - '
+        + 'in the Homebridge UI, open this plugin\'s bridge settings and turn on "Enable Matter" '
+        + '(you can also turn off "Enable HAP", which this plugin does not use). '
+        + 'If you want classic HAP exposure without energy metering, use homebridge-shelly-ng instead.',
+      );
       return;
     }
     this.matter = api.matter;

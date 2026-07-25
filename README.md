@@ -4,6 +4,8 @@ Expose [Shelly](https://www.shelly.com) devices to Apple Home (and other Matter 
 
 HomeKit's own accessory protocol (HAP) has no energy characteristics; Matter has. Homebridge v2.2.0 added the Matter `ElectricalPowerMeasurement` and `ElectricalEnergyMeasurement` clusters to its plugin API, and this plugin bridges Shelly's native metering onto them.
 
+**This is a Matter-only plugin** — it publishes no HAP accessories, so a Matter-enabled bridge is required: in the Homebridge UI, open the plugin's bridge settings and turn on **"Enable Matter"** (optionally turning off **"Enable HAP"**, which this plugin does not use). If you want classic HAP exposure and don't need energy metering, use [homebridge-shelly-ng](https://github.com/alexryd/homebridge-shelly-ng) instead.
+
 ## Requirements
 
 - Homebridge **v2.2.2-beta.7 or later** with [Matter enabled](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0) on the bridge. Earlier versions are missing the composed-accessory Matter fixes this plugin depends on ([#3972](https://github.com/homebridge/homebridge/pull/3972), [#3973](https://github.com/homebridge/homebridge/pull/3973), both now merged) — on them, Apple Home stops responding to controls ~30 seconds after pairing. Until 2.2.2 stable ships, install the beta: `sudo npm install -g homebridge@beta` (or select the beta version in the Homebridge UI).
