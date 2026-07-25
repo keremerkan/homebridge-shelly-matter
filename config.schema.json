@@ -11,8 +11,7 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "ShellyMatter",
-        "required": true
+        "default": "ShellyMatter"
       },
       "mdnsDiscover": {
         "title": "Discover devices via mDNS",
@@ -67,11 +66,11 @@
               },
               "items": {
                 "type": "object",
+                "required": ["channel"],
                 "properties": {
                   "channel": {
                     "title": "Channel (0-based)",
                     "type": "integer",
-                    "required": true,
                     "minimum": 0
                   },
                   "accessoryType": {
