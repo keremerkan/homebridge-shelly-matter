@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-25
+
+### Changed
+
+- Requires Homebridge **v2.2.2-beta.7 or later** (`engines.homebridge` now enforces it). The Homebridge core Matter fixes this plugin depended on ([homebridge#3972](https://github.com/homebridge/homebridge/pull/3972), [homebridge#3973](https://github.com/homebridge/homebridge/pull/3973)) are merged and published, so the custom Homebridge build is no longer needed — the README's workaround section is gone, replaced by a plain version requirement.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added

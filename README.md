@@ -6,68 +6,22 @@ HomeKit's own accessory protocol (HAP) has no energy characteristics; Matter has
 
 ## Requirements
 
-- Homebridge **v2.2.0 or later** with [Matter enabled](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0) on the bridge — **plus the Matter fixes listed under [Known issues](#known-issues-homebridge-core-fixes-pending) below**
+- Homebridge **v2.2.2-beta.7 or later** with [Matter enabled](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0) on the bridge. Earlier versions are missing the composed-accessory Matter fixes this plugin depends on ([#3972](https://github.com/homebridge/homebridge/pull/3972), [#3973](https://github.com/homebridge/homebridge/pull/3973), both now merged) — on them, Apple Home stops responding to controls ~30 seconds after pairing. Until 2.2.2 stable ships, install the beta: `sudo npm install -g homebridge@beta` (or select the beta version in the Homebridge UI).
 - Node.js 22.12+
 - iOS/tvOS 27+ to see energy data in Apple Home (the accessories themselves work on earlier versions)
 
-## Known issues (Homebridge core fixes pending)
+## Apple Home behaviours
 
-This plugin exposes each device as a **composed** Matter accessory (a bridged
-node with one endpoint per channel). Apple Home only models composed
-accessories correctly when the parent endpoint carries `FixedLabel` and
-`PowerSource` clusters, and reliable restarts depend on how Homebridge brings
-its Matter node online. Both are fixed in Homebridge core, but the fixes are
-**not in a released Homebridge yet** — they are open pull requests:
-
-- **[homebridge/homebridge#3972](https://github.com/homebridge/homebridge/pull/3972)** — FixedLabel + PowerSource on composed parents (plus stable accessory identity and semantic tags). **Without this, controls work for ~30 seconds after pairing and then permanently stop responding** (tiles keep showing live state; commands are silently dropped). This affects every device this plugin exposes.
-- **[homebridge/homebridge#3973](https://github.com/homebridge/homebridge/pull/3973)** — defer the Matter node coming online until registrations settle, and keep controller subscriptions alive across restarts. Without it, bridged devices may drop to "No Response" and lose their room assignments after a Homebridge restart.
-- **[homebridge/homebridge#3974](https://github.com/homebridge/homebridge/issues/3974)** — surface commissioned controllers (fabrics) in the Homebridge UI. Until then this plugin shows them in its own settings page ("Connected controllers").
-
-### Running Homebridge with the fixes today
-
-Until the fixes ship in an official Homebridge release, a **prebuilt Homebridge
-package** containing them (current 2.2.2 beta + both PRs, full test suite
-passing) is available from
-[keremerkan/homebridge releases](https://github.com/keremerkan/homebridge/releases) —
-download `homebridge-2.2.2-fixes.2.tgz` and install it **over your existing
-Homebridge**:
-
-- **npm-based installs** (`npm install -g homebridge`):
-
-  ```sh
-  sudo npm install -g ./homebridge-2.2.2-fixes.2.tgz
-  ```
-
-- **Official Debian / Raspberry Pi package or `hb-service` installs** (Homebridge
-  lives under the storage path, with Node in `/opt/homebridge`):
-
-  ```sh
-  sudo env PATH=/opt/homebridge/bin:$PATH \
-      npm --prefix /var/lib/homebridge install ./homebridge-2.2.2-fixes.2.tgz
-  sudo systemctl restart homebridge   # or: sudo hb-service restart
-  ```
-
-- **Docker** (official image): run the same `npm --prefix /var/lib/homebridge install …`
-  inside the container (`docker exec -it homebridge sh`), then restart the container.
-
-After restarting, the Homebridge UI should report version **`2.2.2-fixes.2`**.
-To build from source instead: clone the
-[`beta-2.2.2-with-fixes`](https://github.com/keremerkan/homebridge/tree/beta-2.2.2-with-fixes)
-branch, then `npm ci && npm run build && npm pack` and install the resulting tarball as above.
-
-Two caveats: updating Homebridge from the UI **replaces this build** (re-install
-the tarball afterwards), and this whole section will be replaced by a plain
-`engines.homebridge` version floor once an official release contains the fixes.
-
-These are also **Apple Home** behaviours, not plugin bugs: the same 30-second
-control-loss and stranded-fabric issues are being reported to Apple separately.
-
-One more Apple Home behaviour to be aware of: **tile wattage only appears on
-outlet-typed accessories.** Power metering works for every accessory type this
-plugin exposes, but lights and switches — even though they publish identical
-power and energy data — show no consumption on their own tiles. Their usage is
-still measured and included in the Home app's whole-home energy view. If you
-want live wattage on a device's tile, set its accessory type to outlet.
+- **Tile wattage only appears on outlet-typed accessories.** Power metering
+  works for every accessory type this plugin exposes, but lights and switches —
+  even though they publish identical power and energy data — show no
+  consumption on their own tiles. Their usage is still measured and included in
+  the Home app's whole-home energy view. If you want live wattage on a device's
+  tile, set its accessory type to outlet. (Being reported to Apple; not a
+  plugin bug.)
+- Commissioned controllers (fabrics) are not yet shown in the Homebridge UI
+  ([homebridge/homebridge#3974](https://github.com/homebridge/homebridge/issues/3974));
+  this plugin lists them in its own settings page ("Connected controllers").
 
 ## Device support
 
