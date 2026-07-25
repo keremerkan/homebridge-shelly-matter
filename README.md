@@ -24,13 +24,21 @@ HAP at all.
 
 ## Apple Home behaviours
 
-- **Tile wattage only appears on outlet-typed accessories.** Power metering
-  works for every accessory type this plugin exposes, but lights and switches —
-  even though they publish identical power and energy data — show no
-  consumption on their own tiles. Their usage is still measured and included in
-  the Home app's whole-home energy view. If you want live wattage on a device's
-  tile, set its accessory type to outlet. (Being reported to Apple; not a
-  plugin bug.)
+- **Tile wattage follows the Matter device type: only outlet-typed accessories
+  show it.** Power metering works for every accessory type this plugin exposes,
+  but lights and switches — even though they publish identical power and energy
+  data — show no consumption on their own tiles. To get live wattage, set the
+  channel's accessory type to **outlet**. Prefer a light look? Use the Home
+  app's **"Show As" → Light** on the outlet afterwards — the display override
+  does not affect wattage (verified against certified hardware as well), and
+  "Show As" is only offered on outlet-typed accessories in the first place.
+- **Apple's Energy view lists individual devices only for certified (native)
+  Matter accessories.** Bridged accessories' consumption is counted in the
+  whole-home total, but they are not listed per-device — regardless of
+  reporting shape, power topology, or endpoint structure (we verified by
+  replicating a certified smart plug's exact Matter structure on this bridge).
+  A Homebridge bridge cannot carry a device attestation certificate, so this
+  is an Apple policy limitation, not a plugin gap.
 - Commissioned controllers (fabrics) are not yet shown in the Homebridge UI
   ([homebridge/homebridge#3974](https://github.com/homebridge/homebridge/issues/3974));
   this plugin lists them in its own settings page ("Connected controllers").

@@ -147,9 +147,19 @@ failure with no retry, dropped parts-list notifications).
 
 ## Apple Home behavioral findings (iOS/tvOS 27 beta)
 
-- Tile wattage displays ONLY for outlet-typed accessories; light/switch types
-  with identical ElectricalPowerMeasurement data show nothing on tiles (totals
-  still correct). PowerTopology mode (Tree vs Set) is not consulted.
+- Tile wattage follows the MATTER DEVICE TYPE (On/Off Plug-in Unit): only
+  outlet-typed accessories show it; light/switch types with identical
+  ElectricalPowerMeasurement data show nothing (totals still correct). The
+  Home-app "Show As" display override does NOT affect wattage (an outlet
+  shown as Light keeps it — verified on Eve Energy AND our bridged outlets),
+  and "Show As" is only offered on outlet-typed accessories. Bridged tiles
+  read power ONLY from the outlet's own endpoint (a sibling ElectricalSensor
+  part shows 0W).
+- Apple's Energy view lists per-device usage ONLY for certified/native Matter
+  accessories (2026-07-25 conclusion by elimination: bridged devices are
+  counted in the whole-home total but never listed — not fixable by periodic
+  energy, NodeTopology, or Eve-parity dedicated sensor endpoints; Eve Energy
+  listed within SECONDS of gaining metering firmware).
 - Removing a bridge routinely strands 2-3 bridged accessories as unremovable
   ghosts (survive Remove Anyway, room-deletion trick, macOS app, hub reboots).
 - Same-uniqueId reappearance after structural change → broken accessory records
