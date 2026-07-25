@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-07-25
+
+### Changed
+
+- Clearer startup messages ([#1](https://github.com/keremerkan/homebridge-shelly-matter/issues/1)): the version check now names the actual minimum Homebridge version (v2.2.2-beta.7), shows the version you are running, and gives the beta install command; the Matter-not-enabled warning walks through the Homebridge UI toggles ("Enable Matter", optionally disabling "Enable HAP") and points users who want classic HAP exposure to homebridge-shelly-ng.
+- README states the Matter-only positioning up front, with the same pointers.
+
 ## [0.2.1] - 2026-07-25
 
 ### Changed
