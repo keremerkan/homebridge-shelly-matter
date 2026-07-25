@@ -45,10 +45,41 @@ const OPERATIONAL_STOPPED = { global: 0, lift: 0 };
 const levelFromBrightness = (brightness: number): number => Math.max(1, Math.round((brightness * 254) / 100));
 const brightnessFromLevel = (level: number): number => Math.max(1, Math.min(100, Math.round((level / 254) * 100)));
 
+// matter.js epoch-s fields take UNIX seconds and validate them against the
+// Matter epoch floor (2000-01-01 = 946684800); the wire conversion is its job.
+const EPOCH_S_MINIMUM = 946_684_800;
+
+/**
+ * Cumulative + periodic energy fragment for one direction. Shelly's `aenergy`
+ * carries the lifetime total (Wh) and `by_minute` (mWh per minute, [0] = most
+ * recent) with `minute_ts` marking that minute - per-minute periodic energy is
+ * exactly what Apple Home's per-device energy attribution wants, and the
+ * PeriodicEnergy feature is enabled by these attributes being present at
+ * registration.
+ */
+const energyFragment = (direction: 'Imported' | 'Exported') => (v: ShellyDataType): ClusterState | undefined => {
+  if (!isValidObject(v) || !isValidNumber((v as ShellyData).total, 0)) return undefined;
+  const data = v as ShellyData;
+  const fragment: ClusterState = { [`cumulativeEnergy${direction}`]: { energy: milli(data.total as number) } };
+  const byMinute = (data.by_minute as unknown[] | undefined)?.[0];
+  const minuteTs = data.minute_ts;
+  if (isValidNumber(byMinute, 0) && isValidNumber(minuteTs, EPOCH_S_MINIMUM)) {
+    // by_minute is already in mWh - Matter's energy unit.
+    fragment[`periodicEnergy${direction}`] = {
+      energy: Math.round(byMinute as number),
+      startTimestamp: minuteTs as number,
+      endTimestamp: (minuteTs as number) + 60,
+    };
+  }
+  return fragment;
+};
+
 /**
  * The Shelly-property -> Matter-attribute map, used both to build the initial
  * cluster snapshot at registration and to forward live updates - one table so
  * the two can never disagree about what is metered and how it converts.
+ * `convert` returns a fragment of the cluster's attributes (one property can
+ * feed several attributes, e.g. `aenergy` -> cumulative + periodic energy).
  * `kinds` restricts a row to specific component kinds (unset = all kinds);
  * the same property name can map differently per kind (a switch's `state` is
  * a boolean, a cover's is a movement string).
@@ -56,36 +87,21 @@ const brightnessFromLevel = (level: number): number => Math.max(1, Math.min(100,
 const PROPERTY_MAP: {
   property: string;
   cluster: string;
-  attribute: string;
-  convert: (value: ShellyDataType) => unknown;
+  convert: (value: ShellyDataType) => ClusterState | undefined;
   kinds?: ComponentKind[];
   /** Only forwarded when the device's power metering is enabled. */
   metered?: boolean;
   throttled?: boolean;
 }[] = [
-  { property: 'state', cluster: 'onOff', attribute: 'onOff', convert: (v) => (typeof v === 'boolean' ? v : undefined), kinds: ['switch', 'dimmer'] },
-  { property: 'brightness', cluster: 'levelControl', attribute: 'currentLevel', convert: (v) => (isValidNumber(v, 0, 100) ? levelFromBrightness(v) : undefined), kinds: ['dimmer'] },
-  { property: 'current_pos', cluster: 'windowCovering', attribute: 'currentPositionLiftPercent100ths', convert: (v) => (isValidNumber(v, 0, 100) ? liftFromPosition(v) : undefined), kinds: ['cover'] },
-  { property: 'state', cluster: 'windowCovering', attribute: 'operationalStatus', convert: (v) => (typeof v === 'string' ? (OPERATIONAL_STATUS[v] ?? OPERATIONAL_STOPPED) : undefined), kinds: ['cover'] },
-  { property: 'apower', cluster: 'electricalPowerMeasurement', attribute: 'activePower', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
-  { property: 'voltage', cluster: 'electricalPowerMeasurement', attribute: 'voltage', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
-  { property: 'current', cluster: 'electricalPowerMeasurement', attribute: 'activeCurrent', convert: (v) => (isValidNumber(v, 0) ? milli(v) : undefined), metered: true },
-  {
-    property: 'aenergy',
-    cluster: 'electricalEnergyMeasurement',
-    attribute: 'cumulativeEnergyImported',
-    convert: (v) => (isValidObject(v) && isValidNumber((v as ShellyData).total, 0) ? { energy: milli((v as ShellyData).total as number) } : undefined),
-    metered: true,
-    throttled: true,
-  },
-  {
-    property: 'ret_aenergy',
-    cluster: 'electricalEnergyMeasurement',
-    attribute: 'cumulativeEnergyExported',
-    convert: (v) => (isValidObject(v) && isValidNumber((v as ShellyData).total, 0) ? { energy: milli((v as ShellyData).total as number) } : undefined),
-    metered: true,
-    throttled: true,
-  },
+  { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer'] },
+  { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer'] },
+  { property: 'current_pos', cluster: 'windowCovering', convert: (v) => (isValidNumber(v, 0, 100) ? { currentPositionLiftPercent100ths: liftFromPosition(v) } : undefined), kinds: ['cover'] },
+  { property: 'state', cluster: 'windowCovering', convert: (v) => (typeof v === 'string' ? { operationalStatus: OPERATIONAL_STATUS[v] ?? OPERATIONAL_STOPPED } : undefined), kinds: ['cover'] },
+  { property: 'apower', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activePower: milli(v) } : undefined), metered: true },
+  { property: 'voltage', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { voltage: milli(v) } : undefined), metered: true },
+  { property: 'current', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activeCurrent: milli(v) } : undefined), metered: true },
+  { property: 'aenergy', cluster: 'electricalEnergyMeasurement', convert: energyFragment('Imported'), metered: true, throttled: true },
+  { property: 'ret_aenergy', cluster: 'electricalEnergyMeasurement', convert: energyFragment('Exported'), metered: true, throttled: true },
 ];
 
 /** Per-kind property lookup, so a kind only ever sees its own rows. */
@@ -160,9 +176,9 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
   if (kind === 'dimmer') clusters.levelControl = { currentLevel: 254 };
   for (const entry of PROPERTY_MAPS[kind].values()) {
     if ((entry.metered && !metering) || !component.hasProperty(entry.property)) continue;
-    const value = entry.convert(component.getValue(entry.property));
-    if (value === undefined) continue;
-    (clusters[entry.cluster] ??= {})[entry.attribute] = value;
+    const fragment = entry.convert(component.getValue(entry.property));
+    if (fragment === undefined) continue;
+    Object.assign((clusters[entry.cluster] ??= {}), fragment);
   }
   // A cover that is not moving should target where it is.
   if (kind === 'cover') clusters.windowCovering.targetPositionLiftPercent100ths = clusters.windowCovering.currentPositionLiftPercent100ths;
@@ -360,15 +376,27 @@ interface CachedComponent {
   clusters: Record<string, ClusterState>;
 }
 
-/** Strips metering clusters from a carried snapshot when metering was turned off. */
+/**
+ * The carried cluster snapshot for a shell: strips metering clusters when
+ * metering is off, and seeds periodic-energy attributes alongside carried
+ * cumulative ones - features compose at registration time, so PeriodicEnergy
+ * must be present in the (pre-online) shell for the live per-minute updates
+ * to apply. Never mutates the cached objects.
+ */
 function clustersForMetering(clusters: Record<string, ClusterState>, metering: boolean): Record<string, ClusterState> {
-  if (metering) return clusters;
-  const filtered: Record<string, ClusterState> = {};
+  const result: Record<string, ClusterState> = {};
   for (const [cluster, attributes] of Object.entries(clusters)) {
-    if (cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement') continue;
-    filtered[cluster] = attributes;
+    if (!metering && (cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement')) continue;
+    result[cluster] = attributes;
   }
-  return filtered;
+  const eem = result.electricalEnergyMeasurement;
+  if (eem !== undefined) {
+    const seeded = { ...eem };
+    if ('cumulativeEnergyImported' in seeded && !('periodicEnergyImported' in seeded)) seeded.periodicEnergyImported = { energy: 0 };
+    if ('cumulativeEnergyExported' in seeded && !('periodicEnergyExported' in seeded)) seeded.periodicEnergyExported = { energy: 0 };
+    result.electricalEnergyMeasurement = seeded;
+  }
+  return result;
 }
 
 /** One expected shell accessory built from cached knowledge instead of a live device. */
@@ -546,10 +574,10 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
       // updates cost nothing; stamp only after a successful conversion.
       const throttleKey = entry.throttled ? `${component.id}:${property}` : undefined;
       if (throttleKey !== undefined && Date.now() - (lastEnergyPush.get(throttleKey) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
-      const converted = entry.convert(value);
-      if (converted === undefined) return;
+      const fragment = entry.convert(value);
+      if (fragment === undefined) return;
       if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
-      void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, { [entry.attribute]: converted }, partId);
+      void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, fragment, partId);
     });
   }
 }
