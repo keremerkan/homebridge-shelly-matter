@@ -6,6 +6,8 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
 /** Per-channel settings of a multi-channel device; `channel` is 0-based, as on the device. */
 export interface ShellyChannelConfig {
   channel?: number;
+  /** Only used in the Home app when the device's channels are split into separate accessories. */
+  name?: string;
   accessoryType?: AccessoryType;
   hidden?: boolean;
 }
@@ -23,6 +25,12 @@ export interface ShellyDeviceConfig {
   accessoryType?: AccessoryType;
   hidden?: boolean;
   powerMetering?: boolean;
+  /**
+   * Multi-channel devices only: expose each channel as its own accessory
+   * (assignable to its own room). ON by default - set false to expose the
+   * device as one grouped accessory. Toggling re-creates the accessories.
+   */
+  splitChannels?: boolean;
   channels?: ShellyChannelConfig[];
 }
 
@@ -48,6 +56,14 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
  * 'plug' in the device id.
  */
 export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') ? 'outlet' : 'light');
+
+/**
+ * Splitting multi-channel devices into separate accessories is the DEFAULT
+ * (multi-channel relays usually switch unrelated loads in different rooms);
+ * `splitChannels: false` records the grouped choice. Single source for the
+ * platform, the reconciliation, and the settings UI server.
+ */
+export const splitChannelsEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.splitChannels !== false;
 
 /**
  * Channel setting wins over the device setting, which wins over the kind-based

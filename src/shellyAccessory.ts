@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { ACCESSORY_TYPES, type AccessoryType, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType as resolveConfiguredAccessoryType } from './deviceConfig.js';
+import { ACCESSORY_TYPES, type AccessoryType, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType as resolveConfiguredAccessoryType, splitChannelsEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -226,38 +226,44 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
 /** Serializable context stored with the accessory; enough to rebuild it from the cache. */
 interface ShellyAccessoryContext {
   deviceId: string;
+  /** The device-level display name (split accessories carry channel names in displayName). */
+  deviceName?: string;
+  /**
+   * Rotation generation, embedded in the identity seed and bumped on every
+   * composition change. Guarantees a rotation NEVER lands on a previously
+   * used identity: matter.js persists endpoint numbers per endpoint id, so a
+   * reverted composition would otherwise resurrect endpoints a controller
+   * recently deleted - Apple Home stalls on such reappearances. Generation 0
+   * adds no seed suffix, so pre-generation identities are unchanged.
+   */
+  generation?: number;
   partTypes: Record<string, PartToken>;
   partComponents: Record<string, string>;
 }
 
+/** The seed suffix for a rotation generation (empty for generation 0 - legacy identities stay stable). */
+const generationSuffix = (generation: number): string => (generation > 0 ? `|g${generation}` : '');
+
 /** The component kind a part identity token belongs to. */
 const kindOfToken = (token: PartToken): ComponentKind => (token === 'cover' || token === 'dimmer' ? token : 'switch');
 
-/**
- * Builds the MatterAccessory for a Shelly device, or undefined if the device
- * has no visible supported components. EVERY device becomes a BridgedNode
- * parent with one part per visible channel - matching how matterbridge
- * exposes devices (single-channel included). Apple hubs are only known to
- * behave with this composed shape; flat typed endpoints under the aggregator
- * are the one structure the reference bridge never produces.
- */
-export function buildShellyAccessory(platform: ShellyMatterPlatform, device: ShellyDevice): MatterAccessory | undefined {
-  const visible = visibleComponents(platform, device);
-  if (visible.length === 0) return undefined;
+interface TypedComponent extends MappedComponent {
+  token: PartToken;
+}
 
-  const entry = configForDevice(platform.config, device.id, device.host);
-  const displayName = entry?.name ?? device.name;
-  const metering = meteringEnabled(platform, device);
-  // Each component's token is resolved exactly once and feeds both the
-  // identity seed and the part construction, so the two cannot drift.
-  const typed = visible.map((mapped) => ({ ...mapped, token: partTokenFor(platform, device, mapped) }));
-  // Identity embeds the effective composition (visible channels and their
-  // types) so ANY composition change - retyping a channel, hiding one -
-  // rotates the accessory identity, parent included. Controllers then see a
-  // clean remove+add; a parent that keeps its identity while its children
-  // change becomes an uneditable "Not Supported" husk in Apple Home.
-  const uuid = platform.matter.uuid.generate(`${device.id}|bridge|${typed.map(({ component, token }) => `${component.index}:${token}`).join(',')}`);
-
+/** One composed accessory (BridgedNode parent + one part per given component). */
+function buildOneAccessory(
+  platform: ShellyMatterPlatform,
+  device: ShellyDevice,
+  deviceName: string,
+  generation: number,
+  typed: TypedComponent[],
+  seed: string,
+  displayName: string,
+  partNameFor: (component: ShellyComponent) => string,
+  metering: boolean,
+): MatterAccessory {
+  const uuid = platform.matter.uuid.generate(seed);
   const partTypes: Record<string, PartToken> = {};
   const partComponents: Record<string, string> = {};
   const parts: MatterAccessoryPart[] = typed.map(({ component, kind, token }) => {
@@ -266,16 +272,13 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
     partComponents[partId] = component.id;
     return {
       id: partId,
-      // Single-channel devices keep the plain device name on their sole part;
-      // multi-channel parts get an index suffix (channel tiles are renamed in
-      // the Home app).
-      displayName: visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`,
+      displayName: partNameFor(component),
       deviceType: matterDeviceTypeFor(platform, token),
       clusters: clustersFor(component, kind, metering),
       handlers: handlersFor(platform, uuid, device.id, component.id, partId, kind),
     };
   });
-  const context: ShellyAccessoryContext = { deviceId: device.id, partTypes, partComponents };
+  const context: ShellyAccessoryContext = { deviceId: device.id, deviceName, generation, partTypes, partComponents };
   return {
     UUID: uuid,
     displayName,
@@ -289,33 +292,196 @@ export function buildShellyAccessory(platform: ShellyMatterPlatform, device: She
   };
 }
 
+/**
+ * Builds the MatterAccessories for a Shelly device (empty if it has no
+ * visible supported components). EVERY accessory is a BridgedNode parent
+ * with parts - matching how matterbridge exposes devices (single-channel
+ * included). Apple hubs are only known to behave with this composed shape;
+ * flat typed endpoints under the aggregator are the one structure the
+ * reference bridge never produces.
+ *
+ * By default a device is ONE accessory with a part per visible channel.
+ * With `splitChannels`, each channel becomes its own accessory (Apple Home
+ * assigns rooms per accessory - separated tiles of one accessory always
+ * move rooms together, so multi-room devices need the split).
+ */
+export function buildShellyAccessories(platform: ShellyMatterPlatform, device: ShellyDevice, generation = 0): MatterAccessory[] {
+  const visible = visibleComponents(platform, device);
+  if (visible.length === 0) return [];
+
+  const entry = configForDevice(platform.config, device.id, device.host);
+  const displayName = entry?.name ?? device.name;
+  const metering = meteringEnabled(platform, device);
+  // Each component's token is resolved exactly once and feeds both the
+  // identity seed and the part construction, so the two cannot drift.
+  const typed: TypedComponent[] = visible.map((mapped) => ({ ...mapped, token: partTokenFor(platform, device, mapped) }));
+  // Multi-channel names get an index suffix (tiles are renamed in the Home app).
+  const channelName = (component: ShellyComponent) => (visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`);
+
+  // Identity embeds the effective composition (visible channels and their
+  // types) so ANY composition change - retyping a channel, hiding one,
+  // toggling splitChannels - rotates the accessory identity, parent
+  // included. Controllers then see a clean remove+add; a parent that keeps
+  // its identity while its children change becomes an uneditable
+  // "Not Supported" husk in Apple Home.
+  if (splitChannelsEnabled(entry) && visible.length > 1) {
+    return typed.map((one) => {
+      // Split accessories can carry a per-channel name (grouped parts cannot
+      // reach the Home app with one, so channel names only apply here).
+      const name = channelConfig(entry, one.component.index)?.name ?? channelName(one.component);
+      return buildOneAccessory(platform, device, displayName, generation, [one], `${device.id}|split|${one.component.index}:${one.token}${generationSuffix(generation)}`, name, () => name, metering);
+    });
+  }
+  const seed = `${device.id}|bridge|${typed.map(({ component, token }) => `${component.index}:${token}`).join(',')}${generationSuffix(generation)}`;
+  return [buildOneAccessory(platform, device, displayName, generation, typed, seed, displayName, channelName, metering)];
+}
+
 /** The device id a cached accessory belongs to, if it is one of ours. */
 export function cachedAccessoryDeviceId(cached: MatterAccessory): string | undefined {
   const context = cached.context as Partial<ShellyAccessoryContext> | undefined;
   return typeof context?.deviceId === 'string' ? context.deviceId : undefined;
 }
 
+/** The component kind implied by a component id ('switch:0', 'cover:0', ...). */
+const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
+  switch: 'switch',
+  relay: 'switch',
+  cover: 'cover',
+  roller: 'cover',
+  light: 'dimmer',
+};
+
+interface CachedComponent {
+  componentId: string;
+  index: number;
+  kind: ComponentKind;
+  token: PartToken;
+  /** Cluster snapshot carried from the cached part, so shells keep the same cluster shape. */
+  clusters: Record<string, ClusterState>;
+}
+
+/** Strips metering clusters from a carried snapshot when metering was turned off. */
+function clustersForMetering(clusters: Record<string, ClusterState>, metering: boolean): Record<string, ClusterState> {
+  if (metering) return clusters;
+  const filtered: Record<string, ClusterState> = {};
+  for (const [cluster, attributes] of Object.entries(clusters)) {
+    if (cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement') continue;
+    filtered[cluster] = attributes;
+  }
+  return filtered;
+}
+
+/** One expected shell accessory built from cached knowledge instead of a live device. */
+function shellFromCache(
+  platform: ShellyMatterPlatform,
+  deviceId: string,
+  deviceName: string,
+  generation: number,
+  template: MatterAccessory,
+  components: CachedComponent[],
+  seed: string,
+  displayName: string,
+  partNameFor: (component: CachedComponent) => string,
+  metering: boolean,
+): MatterAccessory {
+  const uuid = platform.matter.uuid.generate(seed);
+  const partTypes: Record<string, PartToken> = {};
+  const partComponents: Record<string, string> = {};
+  const parts: MatterAccessoryPart[] = components.map((component) => {
+    const partId = `${component.componentId.replace(':', '-')}-${component.token}`;
+    partTypes[partId] = component.token;
+    partComponents[partId] = component.componentId;
+    return {
+      id: partId,
+      displayName: partNameFor(component),
+      deviceType: matterDeviceTypeFor(platform, component.token),
+      clusters: clustersForMetering(component.clusters, metering),
+      handlers: handlersFor(platform, uuid, deviceId, component.componentId, partId, component.kind),
+    };
+  });
+  const context: ShellyAccessoryContext = { deviceId, deviceName, generation, partTypes, partComponents };
+  return {
+    UUID: uuid,
+    displayName,
+    serialNumber: template.serialNumber,
+    manufacturer: template.manufacturer,
+    model: template.model,
+    firmwareRevision: template.firmwareRevision,
+    context,
+    deviceType: platform.matter.deviceTypes.BridgedNode,
+    parts,
+  };
+}
+
 /**
- * Rebuilds a registrable accessory from a cached one: the cache preserves
- * everything except device types (not serializable) and handlers (functions),
- * which are restored from the context. Returns undefined for foreign entries.
+ * Rebuilds a device's EXPECTED accessories from its cached accessories plus
+ * the current config - the same composition rules as buildShellyAccessories,
+ * but with components reconstructed from the cached contexts and cluster
+ * snapshots carried over. This lets the platform apply composition changes
+ * (splitChannels, type changes, hidden channels) at startup, BEFORE the
+ * Matter node goes online: paired controllers then only ever see the final
+ * structure. Rotating live on a commissioned bridge desyncs Apple Home (the
+ * bridge record is rebuilt, devices vanish until the hub reboots).
+ *
+ * Returns undefined for foreign/corrupt cache entries.
  */
-export function rebuildCachedAccessory(platform: ShellyMatterPlatform, cached: MatterAccessory): MatterAccessory | undefined {
-  const context = cached.context as Partial<ShellyAccessoryContext> | undefined;
-  if (!context?.deviceId || !context.partTypes || !context.partComponents) return undefined;
-  const { deviceId, partTypes, partComponents } = context;
+export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[]): { shells: MatterAccessory[]; generation: number } | undefined {
+  const entry = configForDevice(platform.config, deviceId);
   const validToken = (token: unknown): PartToken =>
     (token === 'cover' || token === 'dimmer' || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
 
-  const parts = (cached.parts ?? []).map((part) => {
-    const token = validToken(partTypes[part.id]);
-    return {
-      ...part,
-      deviceType: matterDeviceTypeFor(platform, token),
-      handlers: handlersFor(platform, cached.UUID, deviceId, partComponents[part.id], part.id, kindOfToken(token)),
-    };
-  });
-  return { ...cached, deviceType: platform.matter.deviceTypes.BridgedNode, parts };
+  const components = new Map<string, CachedComponent>();
+  let template: MatterAccessory | undefined;
+  let cachedDeviceName: string | undefined;
+  let cachedGeneration = 0;
+  for (const cached of cachedList) {
+    const context = cached.context as Partial<ShellyAccessoryContext> | undefined;
+    if (!context?.partComponents || !context.partTypes) continue;
+    template ??= cached;
+    cachedDeviceName ??= context.deviceName;
+    if (typeof context.generation === 'number' && context.generation > cachedGeneration) cachedGeneration = context.generation;
+    for (const part of cached.parts ?? []) {
+      const componentId = context.partComponents[part.id];
+      if (componentId === undefined || components.has(componentId)) continue;
+      const match = componentId.match(/^([a-z]+):?(\d+)$/i);
+      const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
+      if (!match || !kind) continue;
+      const index = Number(match[2]);
+      const token = kind === 'switch' ? resolveConfiguredAccessoryType(platform.config, deviceId, undefined, index) : kind;
+      components.set(componentId, { componentId, index, kind, token: validToken(token), clusters: part.clusters });
+    }
+  }
+  if (!template || components.size === 0) return undefined;
+
+  // Base name: config wins; else the recorded device name; else a grouped
+  // accessory's own display name (pre-deviceName caches are always grouped).
+  const deviceName = entry?.name ?? cachedDeviceName ?? template.displayName;
+  const metering = entry?.powerMetering !== false;
+  const visible = [...components.values()]
+    .filter((component) => channelConfig(entry, component.index)?.hidden !== true)
+    .sort((a, b) => a.index - b.index);
+  if (visible.length === 0) return { shells: [], generation: cachedGeneration };
+  const channelName = (component: CachedComponent) => (visible.length === 1 ? deviceName : `${deviceName} ${component.index + 1}`);
+
+  const buildAt = (generation: number): MatterAccessory[] => {
+    if (splitChannelsEnabled(entry) && visible.length > 1) {
+      return visible.map((one) => {
+        const name = channelConfig(entry, one.index)?.name ?? channelName(one);
+        return shellFromCache(platform, deviceId, deviceName, generation, template!, [one], `${deviceId}|split|${one.index}:${one.token}${generationSuffix(generation)}`, name, () => name, metering);
+      });
+    }
+    const seed = `${deviceId}|bridge|${visible.map((component) => `${component.index}:${component.token}`).join(',')}${generationSuffix(generation)}`;
+    return [shellFromCache(platform, deviceId, deviceName, generation, template!, visible, seed, deviceName, channelName, metering)];
+  };
+
+  // Build at the cached generation; if the composition changed, rebuild one
+  // generation up so the rotation lands on a NEVER previously used identity
+  // (a revert would otherwise resurrect endpoints controllers just deleted).
+  const atCachedGeneration = buildAt(cachedGeneration);
+  const cachedUuids = new Set(cachedList.map((cached) => cached.UUID));
+  const unchanged = atCachedGeneration.length === cachedUuids.size && atCachedGeneration.every((shell) => cachedUuids.has(shell.UUID));
+  if (unchanged) return { shells: atCachedGeneration, generation: cachedGeneration };
+  return { shells: buildAt(cachedGeneration + 1), generation: cachedGeneration + 1 };
 }
 
 /**
@@ -337,12 +503,29 @@ export function accessorySignature(accessory: MatterAccessory): string {
   });
 }
 
+/**
+ * The accessory's own parts resolved to live components. Driven by the
+ * registered shape (context), not by re-deriving from config, so a split
+ * accessory only ever touches its own channel.
+ */
+function accessoryParts(device: ShellyDevice, accessory: MatterAccessory): { partId: string; component: ShellyComponent; kind: ComponentKind }[] {
+  const context = accessory.context as Partial<ShellyAccessoryContext> | undefined;
+  const resolved: { partId: string; component: ShellyComponent; kind: ComponentKind }[] = [];
+  for (const part of accessory.parts ?? []) {
+    const componentId = context?.partComponents?.[part.id];
+    const component = componentId !== undefined ? device.getComponent(componentId) : undefined;
+    if (!component) continue;
+    const token = context?.partTypes?.[part.id];
+    resolved.push({ partId: part.id, component, kind: kindOfToken((token ?? 'light') as PartToken) });
+  }
+  return resolved;
+}
+
 /** Pushes the device's current state into an already-registered accessory. */
 export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyDevice, accessory: MatterAccessory): void {
   const metering = meteringEnabled(platform, device);
-  for (const mapped of visibleComponents(platform, device)) {
-    const partId = partIdFor(mapped.component, partTokenFor(platform, device, mapped));
-    for (const [cluster, attributes] of Object.entries(clustersFor(mapped.component, mapped.kind, metering))) {
+  for (const { partId, component, kind } of accessoryParts(device, accessory)) {
+    for (const [cluster, attributes] of Object.entries(clustersFor(component, kind, metering))) {
       void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
     }
   }
@@ -353,8 +536,7 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
   const metering = meteringEnabled(platform, device);
   const lastEnergyPush = new Map<string, number>();
 
-  for (const { component, kind } of visibleComponents(platform, device)) {
-    const partId = partIdFor(component, partTokenFor(platform, device, { component, kind }));
+  for (const { partId, component, kind } of accessoryParts(device, accessory)) {
     const propertyMap = PROPERTY_MAPS[kind];
 
     component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {

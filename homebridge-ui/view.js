@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType, splitChannelsEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -31,9 +31,11 @@ export function deviceView({ config, devices } = {}) {
         type: typeOf(undefined),
         channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
         channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
+        channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
         channelsHidden: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.hidden === true),
         name: entry?.name ?? '',
         hidden: entry?.hidden === true,
+        split: splitChannelsEnabled(entry),
       };
     });
   return { types: [...ACCESSORY_TYPES], untested: UNTESTED_KINDS, rows };
@@ -74,16 +76,19 @@ export function applyView({ config, devices, selections } = {}) {
     // Power metering is configured in the schema form, not the table - carry it over.
     if (prior?.powerMetering === false) entry.powerMetering = false;
     if (sel?.hidden === true) entry.hidden = true;
+    // Split is the default; only the grouped choice is a deviation worth recording.
+    if (sel?.split === false) entry.splitChannels = false;
     // Cover/dimmer channels have no type dropdown, so their selections carry
-    // no type; record them only when something (hidden) is actually set.
+    // no type; record a channel only when something is actually set.
     const channels = (Array.isArray(sel?.channels) ? sel.channels : [])
-      .map(({ channel, type, hidden }) => {
+      .map(({ channel, name, type, hidden }) => {
         const channelEntry = { channel };
+        if (name) channelEntry.name = name;
         if (type) channelEntry.accessoryType = type;
         if (hidden === true) channelEntry.hidden = true;
         return channelEntry;
       })
-      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden === true);
+      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden === true || channelEntry.name !== undefined);
     if (channels.length > 0) entry.channels = channels;
     rebuilt.push(entry);
   }

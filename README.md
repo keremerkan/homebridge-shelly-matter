@@ -12,6 +12,16 @@ HomeKit's own accessory protocol (HAP) has no energy characteristics; Matter has
 - Node.js 22.12+
 - iOS/tvOS 27+ to see energy data in Apple Home (the accessories themselves work on earlier versions)
 
+## Pairing with Apple Home
+
+Pair using the bridge's **Matter pairing code — not the HAP QR code**. A child
+bridge with HAP enabled advertises both, and since this plugin publishes no
+HAP accessories, pairing the HAP QR code adds an **empty bridge with no
+devices**. The Matter pairing code and QR are printed in the Homebridge log at
+startup. Turning off **"Enable HAP"** in the bridge settings removes the
+misleading HAP QR code entirely — recommended, since this plugin does not use
+HAP at all.
+
 ## Apple Home behaviours
 
 - **Tile wattage only appears on outlet-typed accessories.** Power metering
@@ -40,7 +50,7 @@ one confirmation moves it to tested.
   - On/off control (as light, outlet, or switch — configurable per channel)
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
-- Multi-channel devices appear as a single grouped accessory, with a separate control per channel.
+- Multi-channel devices appear as **independent accessories per channel by default**, so each channel can live in its own room; set `splitChannels: false` to group them into a single accessory with a control per channel.
 
 ### Supported, not yet tested on real hardware
 
@@ -96,20 +106,35 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `name` — the name shown in the Home app.
 - `accessoryType` — `light`, `outlet`, or `switch`. Applies to relay/switch channels only (covers and dimmers have a fixed type). Defaults: plugs are outlets, wired relay devices are lights.
 - `hidden` — set `true` to not expose the device (or a channel) to Matter at all.
-- `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `accessoryType`, `hidden`. The device `name` applies to the whole device; individual channel tiles are renamed in the Home app. Channels without an entry use the device settings.
+- `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. A channel `name` is only used in the Home app when the device's channels are **split** into separate accessories (the default) — grouped devices always use the device `name` plus the channel number, and their tiles are renamed in the Home app. Channels without an entry use the device settings.
+- `splitChannels` — multi-channel devices only, **on by default**: each channel is its own accessory, so channels can be assigned to different rooms (Apple Home assigns rooms per accessory — even "separate tiles" of one accessory always move rooms together). Set `false` to expose the device as one grouped accessory. Changing this re-creates the device's accessories with fresh identities — reassign rooms after.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 
 The platform also accepts `mdnsDiscover` (default `true`). Set it to `false` to turn off background mDNS discovery — devices with a configured `host` still connect directly, so this is safe once every device has a fixed IP. New devices are then added by IP in this list, or via the settings UI's **Scan network** button (which runs a one-off scan regardless of this setting).
 
-## Changing a device's accessory type
+## Changing a device's accessory type or split setting
 
-Changing the accessory type of a device or channel deliberately re-creates its
-Matter accessory with a fresh identity (Apple Home mishandles devices that
-reappear with the same identity but a different device type, leaving them
-uneditable). The re-created accessory returns to the default room — reassign
-it once after the change.
+Changing the accessory type of a device or channel — or toggling
+`splitChannels` — deliberately re-creates its Matter accessories with fresh
+identities (Apple Home mishandles devices that reappear with the same identity
+but a different structure, leaving them uneditable). The change is applied
+while the bridge restarts, before it comes back online, so paired controllers
+see a clean transition. Apple Home processes the change asynchronously — the
+re-created accessories typically appear after **2–3 minutes**, in the room the
+bridge itself is assigned to; move them to their rooms once after the change.
+
+Make all structural changes in **one settings pass** rather than several in a
+row: Apple Home ingests structure changes slowly, and back-to-back changes can
+make the second one take considerably longer to appear.
+
+Troubleshooting: Apple Home's ingestion of structure changes can stall — if a
+re-created accessory has not appeared after ~5 minutes, **reboot your Apple
+TV/HomePod hub** and give it a few minutes; the pending change then processes
+(existing accessories keep their rooms). In the worst case the bridge may
+briefly show as "Matter Accessory" with devices missing — the same hub reboot
+heals it, though the bridge tile's own name/room may need to be set again.
 
 ## Uninstalling / reinstalling
 

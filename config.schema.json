@@ -57,6 +57,12 @@
               "type": "boolean",
               "default": true
             },
+            "splitChannels": {
+              "title": "Split channels into separate accessories",
+              "type": "boolean",
+              "default": true,
+              "description": "Multi-channel devices only, on by default: each channel becomes its own accessory that can be assigned to its own room. Turn off to expose the device as one grouped accessory. Changing this re-creates the device's accessories - reassign rooms after."
+            },
             "channels": {
               "title": "Channels (multi-channel devices only)",
               "type": "array",
@@ -72,6 +78,10 @@
                     "title": "Channel (0-based)",
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "name": {
+                    "title": "Name (only used in the Home app when channels are split into separate accessories)",
+                    "type": "string"
                   },
                   "accessoryType": {
                     "title": "Accessory type (empty = device setting)",

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `splitChannels` ([#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2)): multi-channel devices can expose each channel as its own accessory, so channels can be assigned to different rooms in Apple Home (rooms are per accessory — even "separate tiles" of one accessory always move rooms together). Toggle per device in the settings UI; changing it re-creates the device's accessories.
+- Per-channel `name` is back — used in the Home app only when the device's channels are split (grouped devices keep using the device name plus channel number).
+- Composition changes (split, type, hidden) are now applied during the bridge restart **before the Matter node comes online**, so paired controllers see a clean transition instead of a live structure mutation — the latter can desync Apple Home until the hub is rebooted.
+- **Splitting is the default for multi-channel devices**: their channels usually switch unrelated loads in different rooms, so each channel now arrives as its own accessory unless `splitChannels: false` is set. **Upgrade note:** a multi-channel device that was grouped (the old default) will be re-created as split accessories on update — set `splitChannels: false` (or untick Split in the settings) before updating to keep it grouped, and expect a one-time room reassignment either way.
+- Rotated accessories always get a **never previously used identity** (a rotation generation is embedded in the identity seed): reverting a change no longer resurrects endpoints controllers recently deleted, which Apple Home mishandles. Existing accessories keep their identities.
+
 ## [0.2.2] - 2026-07-25
 
 ### Changed

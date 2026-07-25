@@ -53,6 +53,18 @@ support matrix). devices.json records per-channel `kinds` for the UI.
 
 - **Serialized registrations** (`registrationQueue`): concurrent
   `registerPlatformAccessories` calls race matter.js endpoint locks.
+- **Pre-online reconciliation** (`expectedShellsFromCache`): composition
+  changes (splitChannels, type changes, hidden channels) are applied at
+  startup from cache+config, BEFORE the deferred Matter node goes online.
+  A live rotation on a commissioned bridge desyncs Apple Home: the bridge
+  record is rebuilt ("Matter Accessory" name, devices vanish) and only a hub
+  reboot + a few minutes heals it (validated 2026-07-25). Offline transitions
+  are handled like reboots. This replaced the old REESTABLISH_QUIET_MS 5s
+  delay, which had begun pushing plugin registrations PAST the deferred
+  online point (the hub resubscribed 3s before the rotation) - registering
+  immediately is what keeps the node offline until we are done. Live
+  rotations remain only for genuine device-shape changes (e.g. a 2PM
+  switching profile while Homebridge runs).
 - **`registerVerified()` — register, then POLL before re-registering**: on
   child bridges the registration is dispatched through an event bus and
   completes asynchronously 1-3s later; the API call resolves at emit. Homebridge
@@ -79,8 +91,15 @@ support matrix). devices.json records per-channel `kinds` for the UI.
   (mV/mA/mW/mWh); energy attributes are nested `{energy: n}`.
 - **Identity rotation**: accessory identity embeds the effective composition —
   every device (single-channel included) is composed:
-  `uuid(deviceId|bridge|<idx:token,...>)` with part ids `componentId-token`,
+  `uuid(deviceId|bridge|<idx:token,...>[|gN])` (split:
+  `deviceId|split|idx:token[|gN]`) with part ids `componentId-token`,
   where token = accessoryType for switches, 'cover'/'dimmer' otherwise.
+  `gN` is the rotation generation (context.generation, bumped on every
+  composition change, no suffix at 0): rotations must NEVER land on a
+  previously used identity - matter.js persists endpoint numbers per
+  endpoint id, and Apple stalls when recently-deleted endpoints reappear
+  (validated 2026-07-25: a split->revert resurrecting the original grouped
+  identity left a No Response ghost + missing accessory until hub reboot).
   ANY composition change (retype, hide)
   rotates the WHOLE accessory (parent included) and the platform unregisters
   the previous identity first. Rationale: Apple Home breaks on same-uniqueId

@@ -6,7 +6,7 @@ import { AnsiLogger, LogLevel, TimestampFormat } from 'node-ansi-logger';
 
 import { configForDevice, deviceConfigs } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
-import { accessorySignature, attachComponentUpdates, buildShellyAccessory, cachedAccessoryDeviceId, mappedComponents, pushCurrentState, rebuildCachedAccessory } from './shellyAccessory.js';
+import { accessorySignature, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
@@ -28,15 +28,6 @@ interface KnownDevice {
 
 const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
-// When a commissioned node comes online, matter.js proactively re-establishes
-// its controllers' former subscriptions with a 2s connection timeout - the
-// mechanism that makes restarts invisible to Apple hubs. Any concurrent
-// registration/handler transaction aborts it, leaving hubs replaying a dead
-// session for minutes ("Ignoring message for unknown session"). Homebridge
-// restores the full bridge structure from its own cache before going online,
-// so holding our queue back briefly costs nothing: only command handlers
-// attach a few seconds later.
-const REESTABLISH_QUIET_MS = 5000;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -53,7 +44,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private saveQueue: Promise<void> = Promise.resolve();
   private saveTimer?: NodeJS.Timeout;
   private readonly registeredSignatures = new Map<string, string>();
-  private readonly uuidByDevice = new Map<string, string>();
+  /** The accessory UUIDs currently registered for a device - one entry grouped, several when splitChannels is on. */
+  private readonly uuidsByDevice = new Map<string, string[]>();
+  /** The current rotation generation per device (see ShellyAccessoryContext.generation). */
+  private readonly generationByDevice = new Map<string, number>();
   private dataPath = '';
   private stopped = false;
 
@@ -80,6 +74,17 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       return;
     }
     this.matter = api.matter;
+
+    // A child bridge with HAP still enabled advertises a HAP QR code that
+    // pairs an EMPTY bridge (this plugin publishes no HAP accessories) -
+    // users have paired it and seen no devices. Point them at the Matter code.
+    const bridge = this.config._bridge as { hap?: { enabled?: boolean } } | undefined;
+    if (bridge && bridge.hap?.enabled !== false) {
+      log.warn(
+        'This bridge has HAP enabled, but this plugin publishes no HAP accessories - pairing the HAP QR code adds an empty bridge with no devices. '
+        + 'Pair Apple Home with the MATTER pairing code instead (printed below at startup), and consider turning off "Enable HAP" in the bridge settings to remove the misleading QR code.',
+      );
+    }
 
     this.shellyLog = new AnsiLogger({
       logName: 'ShellyMatter',
@@ -138,30 +143,55 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.shelly.dataPath = dataPath;
     this.dataPath = dataPath;
 
-    // Hold all Matter registrations back until matter.js's subscription
-    // re-establishment window has passed (see REESTABLISH_QUIET_MS).
-    this.enqueue('Registration queue', () => sleep(REESTABLISH_QUIET_MS));
-
     // Re-register cached accessories so the bridge comes up with a complete
-    // parts list. Without this the paired controller briefly sees an empty
-    // bridge on every restart, drops all bridged devices (losing room
-    // assignments) and re-adds them as new when the live devices reconnect.
+    // parts list - and reconcile them against the CURRENT config while the
+    // Matter node is still offline (Homebridge defers online until these
+    // registrations settle). Composition changes made in the settings
+    // (splitChannels, type changes, hidden channels) are therefore applied
+    // before paired controllers can see the structure: a live rotation on a
+    // commissioned bridge desyncs Apple Home (the bridge record is rebuilt
+    // and devices vanish until the hub reboots), while an offline transition
+    // is handled like any reboot. No quiet-delay is needed here anymore -
+    // registering immediately is what keeps the node offline until we are
+    // done.
+    const cachedByDevice = new Map<string, MatterAccessory[]>();
     for (const cached of this.matterAccessories.values()) {
       const deviceId = cachedAccessoryDeviceId(cached);
       if (deviceId === undefined) continue;
+      const list = cachedByDevice.get(deviceId) ?? [];
+      list.push(cached);
+      cachedByDevice.set(deviceId, list);
+    }
+    for (const [deviceId, cachedList] of cachedByDevice) {
       if (this.isHidden(deviceId)) {
         // Remove hidden devices from bridge and cache.
-        this.enqueue(`Failed to unregister hidden Shelly ${deviceId}`, () => this.unregisterAccessory(cached));
+        for (const cached of cachedList) {
+          this.enqueue(`Failed to unregister hidden Shelly ${deviceId}`, () => this.unregisterAccessory(cached));
+        }
         continue;
       }
-      const shell = rebuildCachedAccessory(this, cached);
-      if (!shell) continue;
-      this.enqueue(`Failed to register cached Shelly ${deviceId}`, async () => {
-        this.log.info(`Registering ${shell.displayName} from cache.`);
-        if (await this.registerVerified(shell, shell.displayName)) {
-          this.uuidByDevice.set(deviceId, shell.UUID);
-        }
-      });
+      const reconciled = expectedShellsFromCache(this, deviceId, cachedList);
+      if (!reconciled) continue;
+      const expected = reconciled.shells;
+      this.generationByDevice.set(deviceId, reconciled.generation);
+      const expectedUuids = new Set(expected.map((shell) => shell.UUID));
+      for (const cached of cachedList) {
+        if (expectedUuids.has(cached.UUID)) continue;
+        this.enqueue(`Failed to unregister stale Shelly ${deviceId}`, async () => {
+          this.log.info(`Shelly ${deviceId} composition changed while offline - removing ${cached.displayName} before the bridge goes online.`);
+          await this.unregisterAccessory(cached);
+        });
+      }
+      for (const shell of expected) {
+        this.enqueue(`Failed to register cached Shelly ${deviceId}`, async () => {
+          this.log.info(`Registering ${shell.displayName} from cache.`);
+          if (await this.registerVerified(shell, shell.displayName)) {
+            const uuids = this.uuidsByDevice.get(deviceId) ?? [];
+            if (!uuids.includes(shell.UUID)) uuids.push(shell.UUID);
+            this.uuidsByDevice.set(deviceId, uuids);
+          }
+        });
+      }
     }
 
     this.shelly.on('discovered', (discovered: DiscoveredDevice) => {
@@ -356,40 +386,53 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
       return;
     }
-    const accessory = buildShellyAccessory(this, device);
-    if (!accessory) {
+    let generation = this.generationByDevice.get(device.id) ?? 0;
+    let accessories = buildShellyAccessories(this, device, generation);
+    if (accessories.length === 0) {
       this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} has no supported components yet - skipping.`);
       return;
     }
-    // A type change rotates the accessory identity: unregister the previous
-    // identity first so controllers see a clean remove+add with no shared
-    // uniqueId (Apple Home breaks on same-uniqueId reappearances).
-    const previousUuid = this.uuidByDevice.get(device.id);
-    if (previousUuid !== undefined && previousUuid !== accessory.UUID) {
-      const stale = this.matterAccessories.get(previousUuid);
-      if (stale) {
-        this.log.info(`Shelly ${device.id} identity rotated (accessory type changed) - removing previous registration.`);
-        await this.unregisterAccessory(stale);
+    // A composition change (type, splitChannels, live device shape) rotates
+    // accessory identity: bump the generation so the rotation lands on a
+    // NEVER previously used identity, and unregister the previous identities
+    // first so controllers see a clean remove+add (Apple Home breaks on
+    // reappearances of identities it has seen before).
+    const previous = this.uuidsByDevice.get(device.id) ?? [];
+    let newUuids = new Set(accessories.map((accessory) => accessory.UUID));
+    const rotated = previous.length > 0 && (previous.length !== newUuids.size || previous.some((uuid) => !newUuids.has(uuid)));
+    if (rotated) {
+      generation += 1;
+      this.generationByDevice.set(device.id, generation);
+      accessories = buildShellyAccessories(this, device, generation);
+      newUuids = new Set(accessories.map((accessory) => accessory.UUID));
+      for (const previousUuid of previous) {
+        const stale = this.matterAccessories.get(previousUuid);
+        if (stale) {
+          this.log.info(`Shelly ${device.id} identity rotated (composition changed) - removing previous registration ${stale.displayName}.`);
+          await this.unregisterAccessory(stale);
+        }
       }
     }
-    this.uuidByDevice.set(device.id, accessory.UUID);
+    this.uuidsByDevice.set(device.id, [...newUuids]);
 
-    const signature = accessorySignature(accessory);
-    const registered = this.registeredSignatures.get(accessory.UUID);
-    if (registered === signature) {
-      // Already registered from the cache with the same structure - just feed it.
-      this.log.info(`Shelly ${device.id} matches its cached registration - pushing current state.`);
-      pushCurrentState(this, device, accessory);
-    } else {
-      if (registered !== undefined) {
-        this.log.info(`Shelly ${device.id} changed since its cached registration - re-registering.`);
-        const cached = this.matterAccessories.get(accessory.UUID);
-        if (cached) await this.unregisterAccessory(cached);
+    for (const accessory of accessories) {
+      const signature = accessorySignature(accessory);
+      const registered = this.registeredSignatures.get(accessory.UUID);
+      if (registered === signature) {
+        // Already registered from the cache with the same structure - just feed it.
+        this.log.info(`Shelly ${device.id} (${accessory.displayName}) matches its cached registration - pushing current state.`);
+        pushCurrentState(this, device, accessory);
+      } else {
+        if (registered !== undefined) {
+          this.log.info(`Shelly ${device.id} (${accessory.displayName}) changed since its cached registration - re-registering.`);
+          const cached = this.matterAccessories.get(accessory.UUID);
+          if (cached) await this.unregisterAccessory(cached);
+        }
+        this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
+        if (!(await this.registerVerified(accessory, accessory.displayName))) continue;
       }
-      this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
-      if (!(await this.registerVerified(accessory, accessory.displayName))) return;
+      this.pendingUpdateAttach.push({ device, accessory });
     }
-    this.pendingUpdateAttach.push({ device, accessory });
     this.scheduleUpdateAttach();
 
     device.on('online', () => this.log.info(`Shelly ${device.id} is online.`));
