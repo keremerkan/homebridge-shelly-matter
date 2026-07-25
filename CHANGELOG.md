@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Periodic energy reporting**: metering devices now publish Matter PeriodicEnergy measurements (per-minute energy from Shelly's `aenergy.by_minute`, with the minute window timestamps) alongside the cumulative totals. Experiment: Apple Home lists devices in its Energy view per time window, and cumulative-only reporting may be why bridged devices contributed to the whole-home total without being listed.
+- **Periodic energy reporting**: metering devices now publish Matter PeriodicEnergy measurements (per-minute energy from Shelly's `aenergy.by_minute`, with the minute window timestamps) alongside the cumulative totals — richer, spec-complete data for any Matter controller. Note: this does not change Apple's Energy view, which lists per-device usage only for certified accessories (see the README's Apple Home behaviours).
 
 ## [0.3.0] - 2026-07-25
 
