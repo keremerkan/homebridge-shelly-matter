@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
@@ -77,13 +77,21 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
     // A child bridge with HAP still enabled advertises a HAP QR code that
     // pairs an EMPTY bridge (this plugin publishes no HAP accessories) -
-    // users have paired it and seen no devices. Point them at the Matter code.
-    const bridge = this.config._bridge as { hap?: { enabled?: boolean } } | undefined;
-    if (bridge && bridge.hap?.enabled !== false) {
-      log.warn(
-        'This bridge has HAP enabled, but this plugin publishes no HAP accessories - pairing the HAP QR code adds an empty bridge with no devices. '
-        + 'Pair Apple Home with the MATTER pairing code instead (printed below at startup), and consider turning off "Enable HAP" in the bridge settings to remove the misleading QR code.',
-      );
+    // users have paired it and seen no devices. Point them at the Matter
+    // code. Homebridge strips `_bridge` from the config it hands to plugins
+    // (childBridgeFork), so the bridge's HAP setting is only visible in the
+    // raw config file.
+    try {
+      const raw = JSON.parse(readFileSync(api.user.configPath(), 'utf8')) as { platforms?: { platform?: string; _bridge?: { hap?: { enabled?: boolean } } }[] };
+      const block = raw.platforms?.find((platform) => platform.platform === PLATFORM_NAME);
+      if (block?._bridge && block._bridge.hap?.enabled !== false) {
+        log.warn(
+          'This bridge has HAP enabled, but this plugin publishes no HAP accessories - pairing the HAP QR code adds an empty bridge with no devices. '
+          + 'Pair Apple Home with the MATTER pairing code instead (shown earlier in this startup log), and consider turning off "Enable HAP" in the bridge settings to remove the misleading QR code.',
+        );
+      }
+    } catch {
+      // Config unreadable from this process - skip the hint.
     }
 
     this.shellyLog = new AnsiLogger({
