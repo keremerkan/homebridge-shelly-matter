@@ -46,7 +46,7 @@ one confirmation moves it to tested.
 
 ### Supported and tested
 
-- **Shelly Gen 2/3 relays and plugs** (Plus/Pro 1, 1PM, 2PM in switch profile, Plus Plug S, …)
+- **Shelly Gen 2/3 relays and plugs** (Plus/Pro 1, 1PM, 2PM in switch profile, Pro 4PM, Plus Plug S, …)
   - On/off control (as light, outlet, or switch — configurable per channel)
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
