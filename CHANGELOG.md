@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-07-25
+## [0.4.0] - 2026-07-26
 
 ### Added
 
 - **Periodic energy reporting**: metering devices now publish Matter PeriodicEnergy measurements (per-minute energy from Shelly's `aenergy.by_minute`, with the minute window timestamps) alongside the cumulative totals — richer, spec-complete data for any Matter controller. Note: this does not change Apple's Energy view, which lists per-device usage only for certified accessories (see the README's Apple Home behaviours).
+- Declared the `supports-matter` transport keyword ([homebridge#3975](https://github.com/homebridge/homebridge/issues/3975)): current Homebridge UI betas now create new child bridges for this plugin with Matter on and HAP off by default, so the misleading HAP QR code no longer appears.
+- The device firmware version is part of the accessory registration signature: a Shelly firmware update now re-registers the accessory in place, keeping the reported firmware current for controllers (surfaced once Homebridge ships bridged firmware support, [homebridge#3976](https://github.com/homebridge/homebridge/pull/3976)).
 
 ## [0.3.0] - 2026-07-25
 
