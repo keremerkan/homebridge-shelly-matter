@@ -522,6 +522,9 @@ export function accessorySignature(accessory: MatterAccessory): string {
   const typeName = (deviceType: unknown): string => (deviceType as { name?: string })?.name ?? String(deviceType);
   return JSON.stringify({
     name: accessory.displayName,
+    // Firmware is part of the signature so a Shelly OTA re-registers the
+    // accessory in place (same identity) and controllers see the new version.
+    firmware: accessory.firmwareRevision,
     parts: (accessory.parts ?? []).map((part) => ({
       id: part.id,
       name: part.displayName,
