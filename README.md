@@ -1,5 +1,9 @@
 # homebridge-shelly-matter
 
+[![npm version](https://img.shields.io/npm/v/homebridge-shelly-matter)](https://www.npmjs.com/package/homebridge-shelly-matter)
+[![node](https://img.shields.io/node/v/homebridge-shelly-matter)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/homebridge-shelly-matter)](LICENSE)
+
 Expose [Shelly](https://www.shelly.com) devices to Apple Home (and other Matter controllers) through [Homebridge](https://homebridge.io) 2.x — **including live power and cumulative energy metering**, which Apple Home displays starting with iOS/tvOS 27.
 
 HomeKit's own accessory protocol (HAP) has no energy characteristics; Matter has. Homebridge v2.2.0 added the Matter `ElectricalPowerMeasurement` and `ElectricalEnergyMeasurement` clusters to its plugin API, and this plugin bridges Shelly's native metering onto them.
