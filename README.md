@@ -1,5 +1,7 @@
 # homebridge-shelly-matter
 
+[![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=for-the-badge&logoColor=%23FFFFFF&logo=homebridge)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
+
 [![npm version](https://img.shields.io/npm/v/homebridge-shelly-matter)](https://www.npmjs.com/package/homebridge-shelly-matter)
 [![node](https://img.shields.io/node/v/homebridge-shelly-matter)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/homebridge-shelly-matter)](LICENSE)
