@@ -189,6 +189,7 @@ failure with no retry, dropped parts-list notifications).
 
 ## Release checklist (pre-publish)
 
+- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it first (re-vendor, re-apply the two import rewrites + two log demotions, diff)
 - Test on live server + real devices before any npm publish (user publishes)
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already
