@@ -60,7 +60,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       log.error(
         `This plugin requires Homebridge v${MIN_HOMEBRIDGE} or later - you are running v${api.serverVersion}, `
         + 'whose Matter support is missing fixes the plugin depends on (Apple Home would stop responding ~30s after pairing). '
-        + 'Until Homebridge 2.2.2 stable is out, install the beta: sudo npm install -g homebridge@beta',
+        + 'Update Homebridge: sudo npm install -g homebridge (or update from the Homebridge UI).',
       );
       return;
     }
@@ -69,7 +69,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         'Matter is not enabled on this bridge. This is a Matter-only plugin (it publishes no HAP accessories) - '
         + 'in the Homebridge UI, open this plugin\'s bridge settings and turn on "Enable Matter" '
         + '(you can also turn off "Enable HAP", which this plugin does not use). '
-        + 'If you want classic HAP exposure without energy metering, use homebridge-shelly-ng instead.',
+        + 'If you want classic HAP exposure without energy metering, use one of the HAP Shelly plugins instead.',
       );
       return;
     }

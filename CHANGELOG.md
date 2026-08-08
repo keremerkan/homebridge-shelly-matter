@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-08
+
+### Changed
+
+- Homebridge **v2.3.0** (stable) is now the minimum version — the first stable release containing all the Matter fixes this plugin depends on. The beta-install instructions are gone from the README and the startup version check.
+- The bridged accessories' firmware version and the `AlternatingCurrent` power-measurement feature, previously carried as local patches, ship in Homebridge 2.3.0 proper ([#3976](https://github.com/homebridge/homebridge/pull/3976), [#3977](https://github.com/homebridge/homebridge/pull/3977)).
+- README: commissioned controllers (fabrics) are shown in Homebridge UI v5.27.1+; the UI also auto-creates Matter-only child bridges for this plugin (Matter on, HAP off) from that version.
+
 ## [0.4.0] - 2026-07-26
 
 ### Added

@@ -6,7 +6,7 @@ export const PLUGIN_NAME = 'homebridge-shelly-matter';
  * and deferred-online fixes; homebridge#3972/#3973). Keep in sync with
  * `engines.homebridge` in package.json.
  */
-export const MIN_HOMEBRIDGE = '2.2.2-beta.7';
+export const MIN_HOMEBRIDGE = '2.3.0';
 
 /** Where the platform persists device sightings for the settings UI (under the Homebridge storage path). */
 export const DATA_DIR = 'shelly-matter';

@@ -8,11 +8,11 @@ Expose [Shelly](https://www.shelly.com) devices to Apple Home (and other Matter 
 
 HomeKit's own accessory protocol (HAP) has no energy characteristics; Matter has. Homebridge v2.2.0 added the Matter `ElectricalPowerMeasurement` and `ElectricalEnergyMeasurement` clusters to its plugin API, and this plugin bridges Shelly's native metering onto them.
 
-**This is a Matter-only plugin** — it publishes no HAP accessories, so a Matter-enabled bridge is required: in the Homebridge UI, open the plugin's bridge settings and turn on **"Enable Matter"** (optionally turning off **"Enable HAP"**, which this plugin does not use). If you want classic HAP exposure and don't need energy metering, use [homebridge-shelly-ng](https://github.com/alexryd/homebridge-shelly-ng) instead.
+**This is a Matter-only plugin** — it publishes no HAP accessories, so a Matter-enabled bridge is required: in the Homebridge UI, open the plugin's bridge settings and turn on **"Enable Matter"** (optionally turning off **"Enable HAP"**, which this plugin does not use). If you want classic HAP exposure and don't need energy metering, use one of the HAP Shelly plugins instead.
 
 ## Requirements
 
-- Homebridge **v2.2.2-beta.7 or later** with [Matter enabled](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0) on the bridge. Earlier versions are missing the composed-accessory Matter fixes this plugin depends on ([#3972](https://github.com/homebridge/homebridge/pull/3972), [#3973](https://github.com/homebridge/homebridge/pull/3973), both now merged) — on them, Apple Home stops responding to controls ~30 seconds after pairing. Until 2.2.2 stable ships, install the beta: `sudo npm install -g homebridge@beta` (or select the beta version in the Homebridge UI).
+- Homebridge **v2.3.0 or later** with [Matter enabled](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0) on the bridge. Earlier versions are missing the composed-accessory Matter fixes this plugin depends on — on them, Apple Home stops responding to controls ~30 seconds after pairing.
 - Node.js 22.12+
 - iOS/tvOS 27+ to see energy data in Apple Home (the accessories themselves work on earlier versions)
 
@@ -24,7 +24,9 @@ HAP accessories, pairing the HAP QR code adds an **empty bridge with no
 devices**. The Matter pairing code and QR are printed in the Homebridge log at
 startup. Turning off **"Enable HAP"** in the bridge settings removes the
 misleading HAP QR code entirely — recommended, since this plugin does not use
-HAP at all.
+HAP at all. Homebridge UI **v5.27.1+** does all of this automatically: it
+recognizes this plugin as Matter-only and creates its child bridges with
+Matter on and HAP off.
 
 ## Apple Home behaviours
 
@@ -43,9 +45,9 @@ HAP at all.
   replicating a certified smart plug's exact Matter structure on this bridge).
   A Homebridge bridge cannot carry a device attestation certificate, so this
   is an Apple policy limitation, not a plugin gap.
-- Commissioned controllers (fabrics) are not yet shown in the Homebridge UI
-  ([homebridge/homebridge#3974](https://github.com/homebridge/homebridge/issues/3974));
-  this plugin lists them in its own settings page ("Connected controllers").
+- Commissioned controllers (fabrics) are shown in the Homebridge UI starting
+  with v5.27.1 (plugin menu > Bridge Settings); this plugin also lists them in
+  its own settings page ("Connected controllers").
 
 ## Device support
 
