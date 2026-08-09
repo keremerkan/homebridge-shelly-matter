@@ -18,10 +18,12 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   syncs stay easy: the only local changes are import rewrites
   (`matterbridge/logger` → `node-ansi-logger`, `matterbridge/utils` →
   `./utils/index.js`), `src/shelly/utils/` vendored from Luligu/matterbridge,
-  and two reconnect log lines downgraded `log.info` → `log.debug`
+  two reconnect log lines downgraded `log.info` → `log.debug`
   (`shellyDevice.ts` "is not connected. Starting connection..." and the same
   message in `shelly.ts`) — Gen2 idle-socket reconnect cycling is normal and
-  was too noisy at info. Do not refactor or "improve" this layer.
+  was too noisy at info — and the mdnsScanner 'warning' handler downgraded
+  `log.warn` → `log.debug` (fires for every malformed mDNS packet from any LAN
+  device; harmless, issue #4). Do not refactor or "improve" this layer.
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
 - `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).
@@ -189,7 +191,7 @@ failure with no retry, dropped parts-list notifications).
 
 ## Release checklist (pre-publish)
 
-- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it first (re-vendor, re-apply the two import rewrites + two log demotions, diff)
+- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it first (re-vendor, re-apply the import rewrites + three log demotions, diff)
 - Test on live server + real devices before any npm publish (user publishes)
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already

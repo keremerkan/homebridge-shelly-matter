@@ -67,15 +67,31 @@ one confirmation moves it to tested.
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
 - Multi-channel devices appear as **independent accessories per channel by default**, so each channel can live in its own room; set `splitChannels: false` to group them into a single accessory with a control per channel.
+- **Shelly Gen 1 relays and the Dimmer 2** (Shelly 1, Dimmer 2 — confirmed by field testing,
+  [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): on/off, dimmer brightness,
+  and live state updates from the wall switch over CoIoT (see the Gen 1 note below).
+  Gen 1 power metering is not mapped yet.
 
 ### Supported, not yet tested on real hardware
 
 - **Covers / rollers** (2PM in cover profile, Plus Shutter, Gen 1 rollers): open/close/stop,
   target position, position and movement state, power metering where the device measures it.
-- **Dimmers** (Shelly Dimmer/Dimmer 2, Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer):
+- **Gen 2+ dimmers** (Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer):
   on/off and brightness.
-- **Gen 1 relays** (Shelly 1, 1PM, 2.5 in relay mode, Gen 1 plugs): on/off over CoIoT.
-  Gen 1 power metering is not mapped yet.
+- **Other Gen 1 models** (1PM, 2.5 in relay mode, Gen 1 plugs, Gen 1 Dimmer): same protocol
+  paths as the tested Gen 1 devices, but no hardware confirmation yet.
+
+### Gen 1 devices and CoIoT
+
+Gen 1 devices report state changes (wall switch, Shelly app) over **CoIoT**, a
+multicast protocol that does not cross network boundaries. If your Shellys are
+on a different network or VLAN than Homebridge, commands from the Home app will
+work (those travel over routed HTTP) but state changes will not appear. Either
+keep Gen 1 devices on the same network as Homebridge, or set each device's
+**CoIoT peer** (device web page > Internet & Security > Advanced Developer
+Settings) to `<homebridge-ip>:5683`, which sends updates as routed unicast and
+works across networks (allow UDP port 5683 through any firewall between them).
+"Enable CoIoT" must be on either way.
 
 ### Could be supported — ask for it
 

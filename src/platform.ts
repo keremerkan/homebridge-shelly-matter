@@ -151,6 +151,19 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.shelly.dataPath = dataPath;
     this.dataPath = dataPath;
 
+    // Gen 1 devices push state changes over CoIoT (CoAP on UDP 5683) - a
+    // passive listener that must be running or wall-switch changes never
+    // reach Matter, and stale tiles make the first Home app tap a no-op (#4).
+    // Started from three idempotent triggers so Gen 2/3-only setups never
+    // bind the port: any Gen 1 device in devices.json (here, before any
+    // network activity), a Gen 1 mDNS discovery, or a Gen 1 device add.
+    try {
+      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as { gen?: number }[];
+      if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
+    } catch {
+      // No devices.json yet - the discovery/add triggers below cover it.
+    }
+
     // Re-register cached accessories so the bridge comes up with a complete
     // parts list - and reconcile them against the CURRENT config while the
     // Matter node is still offline (Homebridge defers online until these
@@ -216,6 +229,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
       // Record every sighting - including hidden devices, so the
       // settings UI can list them for un-hiding.
+      if (discovered.gen === 1) this.shelly?.coapServer.start();
       this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen, model: null, name: null, channels: null, kinds: null });
       if (this.isHidden(discovered.id, discovered.host)) {
         this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
@@ -240,6 +254,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     });
 
     this.shelly.on('add', (device: ShellyDevice) => {
+      if (device.gen === 1) this.shelly?.coapServer.start();
       // Serialize registrations: concurrent parts-list changes race matter.js
       // endpoint locks ("Cannot lock ... synchronously") when devices come
       // online together, and controllers can miss the dropped notification.

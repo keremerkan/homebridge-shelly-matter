@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-09
+
+### Fixed
+
+- **Gen 1 devices now receive state pushes** ([#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): the CoIoT (CoAP) listener was never started, so a change made at the wall switch (or in the Shelly app) never reached Matter controllers - and the resulting stale tiles made the first Home app tap command the state the device was already in, appearing to do nothing. The listener now starts whenever a Gen 1 device is known: at startup when one is recorded in devices.json, on a Gen 1 mDNS discovery, or on a Gen 1 device add. Gen 2/3-only setups never bind the CoAP port (their devices use WebSocket notifications).
+- **Shelly 1 and Dimmer 2 are now field-tested** (thanks to the reporter of [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): Gen 1 relays and the Dimmer 2 move to the tested tier, and the README gains a "Gen 1 devices and CoIoT" note explaining the same-network requirement of CoIoT multicast and the routed-unicast alternative (CoIoT peer set to the Homebridge machine).
+- The mDNS scanner's per-packet parse warnings ("Cannot decode name (bad label)" and similar) are logged at debug level now ([#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)). They fire for malformed multicast DNS packets from any device on the network, not just Shellys, and dropping such a packet is harmless.
+
 ## [0.5.0] - 2026-08-08
 
 ### Changed

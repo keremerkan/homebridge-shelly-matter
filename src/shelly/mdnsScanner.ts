@@ -266,7 +266,10 @@ export class MdnsScanner extends EventEmitter<MdnsScannerEvents> {
     });
 
     this.scanner.on('warning', (error) => {
-      this.log.warn(`Warning in mDNS query service: ${error.message}`);
+      // Local change: demoted warn -> debug. These fire for every malformed
+      // mDNS packet from ANY device on the LAN (the scanner receives all
+      // multicast DNS traffic); unparseable packets are dropped harmlessly.
+      this.log.debug(`Warning in mDNS query service: ${error.message}`);
     });
 
     this.scanner.on('ready', () => {
