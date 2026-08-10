@@ -21,9 +21,12 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   two reconnect log lines downgraded `log.info` → `log.debug`
   (`shellyDevice.ts` "is not connected. Starting connection..." and the same
   message in `shelly.ts`) — Gen2 idle-socket reconnect cycling is normal and
-  was too noisy at info — and the mdnsScanner 'warning' handler downgraded
+  was too noisy at info — the mdnsScanner 'warning' handler downgraded
   `log.warn` → `log.debug` (fires for every malformed mDNS packet from any LAN
-  device; harmless, issue #4). Do not refactor or "improve" this layer.
+  device; harmless, issue #4), and the wsClient constructor skipping the
+  default `:80` when the host already carries a port (Shelly Range Extender
+  hosts are `extender-ip:port`, issue #5; same bug reported upstream). Do not
+  refactor or "improve" this layer.
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
 - `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).

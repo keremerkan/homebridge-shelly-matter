@@ -143,7 +143,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 ```
 
 - `device` — the device id. One entry per physical device.
-- `host` — IP address/hostname; needed for devices mDNS cannot find, or for every device when mDNS discovery is disabled (they are added directly).
+- `host` — IP address/hostname, optionally with a port (`ip:port`, e.g. a device behind a Shelly Range Extender); needed for devices mDNS cannot find, or for every device when mDNS discovery is disabled (they are added directly).
 - `name` — the name shown in the Home app.
 - `accessoryType` — `light`, `outlet`, or `switch`. Applies to relay/switch channels only (covers and dimmers have a fixed type). Defaults: plugs are outlets, wired relay devices are lights.
 - `hidden` — set `true` to not expose the device (or a channel) to Matter at all.

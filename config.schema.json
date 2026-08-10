@@ -31,7 +31,7 @@
               "type": "string"
             },
             "host": {
-              "title": "IP address or hostname (filled automatically for discovered devices; lets the plugin work without mDNS)",
+              "title": "IP address or hostname, optionally with a port as ip:port (e.g. behind a Shelly Range Extender). Filled automatically for discovered devices; lets the plugin work without mDNS.",
               "type": "string"
             },
             "name": {

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-08-10
+
+### Fixed
+
+- Devices reached through a **Shelly Range Extender** (host of the form `extender-ip:port`) no longer fail their WebSocket connection with "Invalid URL: ws://ip:port:80/rpc" ([#5](https://github.com/keremerkan/homebridge-shelly-matter/issues/5)): the default port is only appended when the host does not already carry one. The same fix was reported to the upstream protocol layer.
+
 ## [0.5.1] - 2026-08-09
 
 ### Fixed

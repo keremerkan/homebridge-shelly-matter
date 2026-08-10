@@ -165,7 +165,10 @@ export class WsClient extends EventEmitter<WsClientEvent> {
     this.wsHost = wsHost;
     this.wsPort = wsPort;
     this.wsDeviceId = wsDeviceId;
-    this.wsUrl = `ws://${this.wsHost}:${this.wsPort}/rpc`;
+    // Local change: a host may already carry a port (Shelly Range Extender
+    // exposes far devices as extender-ip:port) - don't append the default
+    // port then, it would produce an invalid ip:port:80 URL.
+    this.wsUrl = this.wsHost.includes(':') ? `ws://${this.wsHost}/rpc` : `ws://${this.wsHost}:${this.wsPort}/rpc`;
     this.password = password;
     this.requestId = crypto.randomInt(0, 999999);
     this.requestFrame.id = this.requestId;
