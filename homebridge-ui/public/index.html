@@ -89,6 +89,13 @@
       return `<select class="custom-select custom-select-sm" data-entry="${escapeAttr(key)}">${options}</select>`;
     }
 
+    /** Sensor cell: fixed measurement labels, no type choice ("temperature + humidity"). */
+    function sensorCellHtml(row) {
+      const labels = (row.sensorKinds.length ? row.sensorKinds : [row.kind]).join(' + ');
+      const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning">untested</span>' : '';
+      return `${labels}${badge}`;
+    }
+
     function nameInputHtml(row) {
       return `<input type="text" class="form-control form-control-sm" data-name-entry="${escapeAttr(row.id)}" value="${escapeAttr(row.name)}" placeholder="e.g. Office Ceiling">`;
     }
@@ -100,7 +107,7 @@
         if (!row) continue;
         const label = device.name && device.name !== device.id ? `${escapeAttr(device.name)} <span class="text-muted">(${escapeAttr(device.id)})</span>` : escapeAttr(device.id);
         const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).map(escapeAttr).join(' · ');
-        const multi = row.channelTypes.length > 0;
+        const multi = row.channelTypes.length > 0 && !row.sensor;
         const span = multi ? row.channelTypes.length + 1 : 1;
         rows.push(`
           <tr>
@@ -109,7 +116,7 @@
             </td>
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>
-            <td>${multi ? '<span class="text-muted">per channel</span>' : typeCellHtml(row)}</td>
+            <td>${multi ? '<span class="text-muted">per channel</span>' : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
             <td style="text-align: center;" title="Expose each channel as its own accessory so channels can be placed in different rooms. Changing this re-creates the accessories - reassign rooms after.">${multi ? `<input type="checkbox" data-split="${escapeAttr(device.id)}" ${row.split ? 'checked' : ''}>` : ''}</td>
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>

@@ -80,6 +80,10 @@ one confirmation moves it to tested.
   on/off and brightness.
 - **Other Gen 1 models** (1PM, 2.5 in relay mode, Gen 1 plugs, Gen 1 Dimmer): same protocol
   paths as the tested Gen 1 devices, but no hardware confirmation yet.
+- **Battery sensors** (H&T: temperature + humidity; Flood: water leak + temperature —
+  including battery level): exposed as Matter sensor accessories. Battery sensors sleep
+  between reports, so readings update when the device wakes (periodically or on change),
+  not continuously. Gen 1 sensor models report over CoIoT — the Gen 1 note below applies.
 
 ### Gen 1 devices and CoIoT
 
@@ -100,7 +104,7 @@ Matter mapping. [Open an issue](https://github.com/keremerkan/homebridge-shelly-
 if you own one and want it prioritized — we can usually provide a beta build to test:
 
 - RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
-- Sensors: H&T (temperature/humidity), Flood, Door/Window, Motion, Smoke — including battery level
+- Sensors: Door/Window (contact), Motion, Smoke — including battery level
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
 - Standalone energy meters (EM, 3EM, Pro EM, PM Mini)
 - TRV / thermostats, and BLU devices via a Shelly BLE gateway

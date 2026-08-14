@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-14
+
+### Added
+
+- **Battery sensor support** ([#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6)): Shelly H&T (temperature + humidity) and Shelly Flood (water leak + temperature) are now exposed as Matter sensor accessories, with battery level on the accessory (Matter PowerSource cluster). Environment sensors map only on sensor-only devices - relays report their internal device temperature under the same component names, and nobody wants that as a Home sensor. Sensor accessories never split (one physical unit) and have no accessory type choice. Battery sensors sleep between reports; readings update when the device wakes.
+
 ## [0.5.2] - 2026-08-10
 
 ### Fixed

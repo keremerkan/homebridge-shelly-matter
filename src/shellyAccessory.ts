@@ -15,10 +15,15 @@ import { isValidNumber, isValidObject } from './shelly/utils/index.js';
  * configurable accessory type (light/outlet/switch); covers and dimmers have
  * a fixed Matter device type.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer';
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood';
 
 /** A part's identity token: the accessory type for switches, the kind otherwise. */
-type PartToken = AccessoryType | 'cover' | 'dimmer';
+type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood';
+
+/** Sensor kinds have no user-configurable type, no handlers, and never split. */
+const SENSOR_KINDS = ['temperature', 'humidity', 'flood'] as const;
+const isSensorKind = (kind: ComponentKind): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
+const SENSOR_PART_LABEL: Record<string, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak' };
 
 // Matter electrical measurement attributes use milli-units: mV, mA, mW, mWh.
 const milli = (value: number): number => Math.round(value * 1000);
@@ -102,6 +107,11 @@ const PROPERTY_MAP: {
   { property: 'current', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activeCurrent: milli(v) } : undefined), metered: true },
   { property: 'aenergy', cluster: 'electricalEnergyMeasurement', convert: energyFragment('Imported'), metered: true, throttled: true },
   { property: 'ret_aenergy', cluster: 'electricalEnergyMeasurement', convert: energyFragment('Exported'), metered: true, throttled: true },
+  // Sensor kinds. Matter measures temperature and humidity in 0.01 units;
+  // BooleanState's stateValue is TRUE when a leak is detected.
+  { property: 'tC', cluster: 'temperatureMeasurement', convert: (v) => (isValidNumber(v, -273, 350) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['temperature'] },
+  { property: 'value', cluster: 'relativeHumidityMeasurement', convert: (v) => (isValidNumber(v, 0, 100) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['humidity'] },
+  { property: 'flood', cluster: 'booleanState', convert: (v) => (typeof v === 'boolean' ? { stateValue: v } : undefined), kinds: ['flood'] },
 ];
 
 /** Per-kind property lookup, so a kind only ever sees its own rows. */
@@ -109,6 +119,9 @@ const PROPERTY_MAPS: Record<ComponentKind, Map<string, (typeof PROPERTY_MAP)[num
   switch: new Map(),
   cover: new Map(),
   dimmer: new Map(),
+  temperature: new Map(),
+  humidity: new Map(),
+  flood: new Map(),
 };
 for (const entry of PROPERTY_MAP) {
   for (const kind of entry.kinds ?? (Object.keys(PROPERTY_MAPS) as ComponentKind[])) {
@@ -125,6 +138,29 @@ for (const entry of PROPERTY_MAP) {
  */
 const partIdFor = (component: ShellyComponent, token: PartToken): string => `${component.id.replace(':', '-')}-${token}`;
 
+const BATTERY_CRITICAL_PCT = 10;
+const BATTERY_WARNING_PCT = 20;
+
+/** batPercentRemaining is in half-percent units; batChargeLevel 0=Ok 1=Warning 2=Critical. */
+const powerSourceFragment = (level: ShellyDataType): ClusterState | undefined =>
+  isValidNumber(level, 0, 100)
+    ? { batPercentRemaining: Math.round(level * 2), batChargeLevel: level <= BATTERY_CRITICAL_PCT ? 2 : level <= BATTERY_WARNING_PCT ? 1 : 0 }
+    : undefined;
+
+/** Full PowerSource (Battery) state for the composed parent of a battery sensor. */
+const powerSourceClusterFor = (battery: ShellyComponent): ClusterState => ({
+  status: 1, // Active
+  order: 0,
+  description: 'Battery',
+  batReplaceability: 1, // UserReplaceable
+  batReplacementNeeded: false,
+  ...(powerSourceFragment(battery.getValue('level')) ?? { batChargeLevel: 0 }),
+});
+
+/** The parent-level powerSource state of an accessory, if it carries one. */
+const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined =>
+  (accessory as { clusters?: Record<string, ClusterState> }).clusters?.powerSource;
+
 export interface MappedComponent {
   component: ShellyComponent;
   kind: ComponentKind;
@@ -139,6 +175,17 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
     // Light components without brightness (and Rgb/Rgbw/Cct color channels)
     // are not mapped yet - see the README support matrix.
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
+  }
+  // Environment sensors map only on sensor-only devices (H&T, Flood, ...).
+  // Relays expose their INTERNAL device temperature under the same component
+  // names - mapping those would sprout unwanted sensor parts on every relay
+  // and rotate every identity.
+  if (mapped.length === 0) {
+    for (const [, component] of device) {
+      if (component.name === 'Temperature') mapped.push({ component, kind: 'temperature' });
+      else if (component.name === 'Humidity') mapped.push({ component, kind: 'humidity' });
+      else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
+    }
   }
   return mapped;
 }
@@ -158,6 +205,9 @@ function visibleComponents(platform: ShellyMatterPlatform, device: ShellyDevice)
 }
 
 function matterDeviceTypeFor(platform: ShellyMatterPlatform, token: PartToken) {
+  if (token === 'temperature') return platform.matter.deviceTypes.TemperatureSensor;
+  if (token === 'humidity') return platform.matter.deviceTypes.HumiditySensor;
+  if (token === 'flood') return platform.matter.deviceTypes.LeakSensor;
   if (token === 'cover') return platform.matter.deviceTypes.WindowCovering;
   if (token === 'dimmer') return platform.matter.deviceTypes.DimmableLight;
   if (token === 'switch') return platform.matter.deviceTypes.OnOffSwitch;
@@ -170,9 +220,16 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
   // The primary cluster must always exist (it is the registration-verify
   // probe and carries the mandatory attributes); seed it and let the map's
   // own rows overwrite when the device reports.
-  const clusters: Record<string, ClusterState> = kind === 'cover'
-    ? { windowCovering: { currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } }
-    : { onOff: { onOff: false } };
+  const SENSOR_PRIMARY: Record<string, Record<string, ClusterState>> = {
+    temperature: { temperatureMeasurement: { measuredValue: null } },
+    humidity: { relativeHumidityMeasurement: { measuredValue: null } },
+    flood: { booleanState: { stateValue: false } },
+  };
+  const clusters: Record<string, ClusterState> = SENSOR_PRIMARY[kind]
+    ? Object.fromEntries(Object.entries(SENSOR_PRIMARY[kind]).map(([cluster, attributes]) => [cluster, { ...attributes }]))
+    : kind === 'cover'
+      ? { windowCovering: { currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } }
+      : { onOff: { onOff: false } };
   if (kind === 'dimmer') clusters.levelControl = { currentLevel: 254 };
   for (const entry of PROPERTY_MAPS[kind].values()) {
     if ((entry.metered && !metering) || !component.hasProperty(entry.property)) continue;
@@ -190,6 +247,8 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
  * accessories re-registered from the cache before the device has connected.
  */
 function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId: string, kind: ComponentKind) {
+  // Sensors are read-only: no commands, no handlers.
+  if (isSensorKind(kind)) return undefined;
   const resolve = (action: string): ShellyComponent | undefined => {
     const component = platform.shellyComponent(deviceId, componentId);
     if (!component) platform.log.warn(`Shelly ${deviceId} is not connected - cannot ${action} ${componentId}.`);
@@ -261,7 +320,7 @@ interface ShellyAccessoryContext {
 const generationSuffix = (generation: number): string => (generation > 0 ? `|g${generation}` : '');
 
 /** The component kind a part identity token belongs to. */
-const kindOfToken = (token: PartToken): ComponentKind => (token === 'cover' || token === 'dimmer' ? token : 'switch');
+const kindOfToken = (token: PartToken): ComponentKind => (token === 'cover' || token === 'dimmer' || isSensorKind(token as ComponentKind) ? (token as ComponentKind) : 'switch');
 
 interface TypedComponent extends MappedComponent {
   token: PartToken;
@@ -278,6 +337,7 @@ function buildOneAccessory(
   displayName: string,
   partNameFor: (component: ShellyComponent) => string,
   metering: boolean,
+  parentClusters?: Record<string, ClusterState>,
 ): MatterAccessory {
   const uuid = platform.matter.uuid.generate(seed);
   const partTypes: Record<string, PartToken> = {};
@@ -304,6 +364,7 @@ function buildOneAccessory(
     firmwareRevision: device.firmware,
     context,
     deviceType: platform.matter.deviceTypes.BridgedNode,
+    ...(parentClusters ? { clusters: parentClusters } : {}),
     parts,
   };
 }
@@ -331,8 +392,18 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // Each component's token is resolved exactly once and feeds both the
   // identity seed and the part construction, so the two cannot drift.
   const typed: TypedComponent[] = visible.map((mapped) => ({ ...mapped, token: partTokenFor(platform, device, mapped) }));
-  // Multi-channel names get an index suffix (tiles are renamed in the Home app).
-  const channelName = (component: ShellyComponent) => (visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`);
+  // Multi-channel names get an index suffix (tiles are renamed in the Home app);
+  // sensor parts get their measurement label instead (their index is not a channel).
+  const kindById = new Map(typed.map(({ component, kind }) => [component.id, kind]));
+  const channelName = (component: ShellyComponent) => {
+    const label = SENSOR_PART_LABEL[kindById.get(component.id) ?? ''];
+    if (label !== undefined) return `${displayName} ${label}`;
+    return visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`;
+  };
+  // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
+  // cluster - the core composes the Battery feature from these attributes.
+  const battery = device.getComponent('battery');
+  const parentClusters = battery && typed.some(({ kind }) => isSensorKind(kind)) ? { powerSource: powerSourceClusterFor(battery) } : undefined;
 
   // Identity embeds the effective composition (visible channels and their
   // types) so ANY composition change - retyping a channel, hiding one,
@@ -340,7 +411,9 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // included. Controllers then see a clean remove+add; a parent that keeps
   // its identity while its children change becomes an uneditable
   // "Not Supported" husk in Apple Home.
-  if (splitChannelsEnabled(entry) && visible.length > 1) {
+  // Sensor devices are one physical unit - their parts (temperature +
+  // humidity) never split into separate accessories.
+  if (splitChannelsEnabled(entry) && visible.length > 1 && typed.every(({ kind }) => !isSensorKind(kind))) {
     return typed.map((one) => {
       // Split accessories can carry a per-channel name (grouped parts cannot
       // reach the Home app with one, so channel names only apply here).
@@ -349,7 +422,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
     });
   }
   const seed = `${device.id}|bridge|${typed.map(({ component, token }) => `${component.index}:${token}`).join(',')}${generationSuffix(generation)}`;
-  return [buildOneAccessory(platform, device, displayName, generation, typed, seed, displayName, channelName, metering)];
+  return [buildOneAccessory(platform, device, displayName, generation, typed, seed, displayName, channelName, metering, parentClusters)];
 }
 
 /** The device id a cached accessory belongs to, if it is one of ours. */
@@ -365,6 +438,9 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   cover: 'cover',
   roller: 'cover',
   light: 'dimmer',
+  temperature: 'temperature',
+  humidity: 'humidity',
+  flood: 'flood',
 };
 
 interface CachedComponent {
@@ -411,6 +487,7 @@ function shellFromCache(
   displayName: string,
   partNameFor: (component: CachedComponent) => string,
   metering: boolean,
+  parentClusters?: Record<string, ClusterState>,
 ): MatterAccessory {
   const uuid = platform.matter.uuid.generate(seed);
   const partTypes: Record<string, PartToken> = {};
@@ -437,6 +514,7 @@ function shellFromCache(
     firmwareRevision: template.firmwareRevision,
     context,
     deviceType: platform.matter.deviceTypes.BridgedNode,
+    ...(parentClusters ? { clusters: parentClusters } : {}),
     parts,
   };
 }
@@ -456,7 +534,7 @@ function shellFromCache(
 export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[]): { shells: MatterAccessory[]; generation: number } | undefined {
   const entry = configForDevice(platform.config, deviceId);
   const validToken = (token: unknown): PartToken =>
-    (token === 'cover' || token === 'dimmer' || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
+    (token === 'cover' || token === 'dimmer' || isSensorKind(token as ComponentKind) || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
 
   const components = new Map<string, CachedComponent>();
   let template: MatterAccessory | undefined;
@@ -471,10 +549,10 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
     for (const part of cached.parts ?? []) {
       const componentId = context.partComponents[part.id];
       if (componentId === undefined || components.has(componentId)) continue;
-      const match = componentId.match(/^([a-z]+):?(\d+)$/i);
+      const match = componentId.match(/^([a-z_]+)(?::?(\d+))?$/i);
       const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
       if (!match || !kind) continue;
-      const index = Number(match[2]);
+      const index = match[2] !== undefined ? Number(match[2]) : -1;
       const token = kind === 'switch' ? resolveConfiguredAccessoryType(platform.config, deviceId, undefined, index) : kind;
       components.set(componentId, { componentId, index, kind, token: validToken(token), clusters: part.clusters });
     }
@@ -489,17 +567,22 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
     .filter((component) => channelConfig(entry, component.index)?.hidden !== true)
     .sort((a, b) => a.index - b.index);
   if (visible.length === 0) return { shells: [], generation: cachedGeneration };
-  const channelName = (component: CachedComponent) => (visible.length === 1 ? deviceName : `${deviceName} ${component.index + 1}`);
+  const channelName = (component: CachedComponent) => {
+    const label = SENSOR_PART_LABEL[component.kind];
+    if (label !== undefined) return `${deviceName} ${label}`;
+    return visible.length === 1 ? deviceName : `${deviceName} ${component.index + 1}`;
+  };
+  const parentClusters = accessoryPowerSource(template) ? { powerSource: accessoryPowerSource(template)! } : undefined;
 
   const buildAt = (generation: number): MatterAccessory[] => {
-    if (splitChannelsEnabled(entry) && visible.length > 1) {
+    if (splitChannelsEnabled(entry) && visible.length > 1 && visible.every((component) => !isSensorKind(component.kind))) {
       return visible.map((one) => {
         const name = channelConfig(entry, one.index)?.name ?? channelName(one);
         return shellFromCache(platform, deviceId, deviceName, generation, template!, [one], `${deviceId}|split|${one.index}:${one.token}${generationSuffix(generation)}`, name, () => name, metering);
       });
     }
     const seed = `${deviceId}|bridge|${visible.map((component) => `${component.index}:${component.token}`).join(',')}${generationSuffix(generation)}`;
-    return [shellFromCache(platform, deviceId, deviceName, generation, template!, visible, seed, deviceName, channelName, metering)];
+    return [shellFromCache(platform, deviceId, deviceName, generation, template!, visible, seed, deviceName, channelName, metering, parentClusters)];
   };
 
   // Build at the cached generation; if the composition changed, rebuild one
@@ -525,6 +608,7 @@ export function accessorySignature(accessory: MatterAccessory): string {
     // Firmware is part of the signature so a Shelly OTA re-registers the
     // accessory in place (same identity) and controllers see the new version.
     firmware: accessory.firmwareRevision,
+    clusters: Object.keys((accessory as { clusters?: Record<string, ClusterState> }).clusters ?? {}).sort(),
     parts: (accessory.parts ?? []).map((part) => ({
       id: part.id,
       name: part.displayName,
@@ -560,6 +644,11 @@ export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyD
       void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
     }
   }
+  // Battery lives on the composed parent, not on a part.
+  if (accessoryPowerSource(accessory)) {
+    const fragment = powerSourceFragment(device.getComponent('battery')?.getValue('level'));
+    if (fragment) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment);
+  }
 }
 
 /** Subscribes to component updates and forwards them to the Matter accessory state. */
@@ -581,6 +670,15 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
       if (fragment === undefined) return;
       if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
       void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, fragment, partId);
+    });
+  }
+
+  // Battery updates target the composed parent's PowerSource cluster.
+  if (accessoryPowerSource(accessory)) {
+    device.getComponent('battery')?.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
+      if (property !== 'level') return;
+      const fragment = powerSourceFragment(value);
+      if (fragment) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment);
     });
   }
 }

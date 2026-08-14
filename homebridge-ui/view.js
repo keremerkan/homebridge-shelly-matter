@@ -8,7 +8,10 @@ import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, 
  */
 
 /** Component kinds newly supported but not yet validated on real hardware; the UI badges them. */
-const UNTESTED_KINDS = ['cover', 'dimmer'];
+const UNTESTED_KINDS = ['cover', 'dimmer', 'temperature', 'humidity', 'flood'];
+
+/** Read-only sensor kinds: no accessory type choice, no splitting, one physical unit. */
+const SENSOR_KINDS = ['temperature', 'humidity', 'flood'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
@@ -36,6 +39,8 @@ export function deviceView({ config, devices } = {}) {
         name: entry?.name ?? '',
         hidden: entry?.hidden === true,
         split: splitChannelsEnabled(entry),
+        sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every((kind) => SENSOR_KINDS.includes(kind)),
+        sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter((kind) => SENSOR_KINDS.includes(kind)) : [],
       };
     });
   return { types: [...ACCESSORY_TYPES], untested: UNTESTED_KINDS, rows };
