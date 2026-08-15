@@ -71,6 +71,12 @@ one confirmation moves it to tested.
   [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): on/off, dimmer brightness,
   and live state updates from the wall switch over CoIoT (see the Gen 1 note below).
   Gen 1 power metering is not mapped yet.
+- **Battery sensors: Shelly H&T (SHHT-1) and Shelly Flood (SHWT-1)** — confirmed by field
+  testing, [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6): temperature,
+  humidity, water leak, and battery level. Battery sensors sleep between reports, so readings
+  update when the device wakes (periodically or on change), not continuously. Newer sensor
+  generations (Plus H&T, H&T Gen3, Flood Gen4) are implemented but not hardware-confirmed.
+  Gen 1 sensor models report over CoIoT — the note below applies.
 
 ### Supported, not yet tested on real hardware
 
@@ -80,11 +86,6 @@ one confirmation moves it to tested.
   on/off and brightness.
 - **Other Gen 1 models** (1PM, 2.5 in relay mode, Gen 1 plugs, Gen 1 Dimmer): same protocol
   paths as the tested Gen 1 devices, but no hardware confirmation yet.
-- **Battery sensors** (H&T: temperature + humidity; Flood: water leak + temperature —
-  including battery level): exposed as Matter sensor accessories. Battery sensors sleep
-  between reports, so readings update when the device wakes (periodically or on change),
-  not continuously. Gen 1 sensor models report over CoIoT — the Gen 1 note below applies.
-
 ### Gen 1 devices and CoIoT
 
 Gen 1 devices report state changes (wall switch, Shelly app) over **CoIoT**, a
@@ -125,8 +126,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
 | Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
 | Shelly Dimmer 2 | `shellydimmer2` | dimmable light | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
-| Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | 🧪 [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
-| Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | 🧪 [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
+| Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
+| Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Other Gen 1 relays/plugs (1L, 1PM, 2, 2.5 relay, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyswitch25`, `shellyplug` … | light / outlet / switch (Gen 1 metering not mapped) | 🟡 |
 | Gen 2+ relays (Plus 1PM, Plus 2PM switch, Pro 1/1PM/2/3, Minis, Gen3/Gen4 models, outdoor plugs) | `shellyplus1pm`, `shellyplus2pm`, `shellypro1pm`, `shellypro3`, `shelly1g3`, `shelly1mini`, `shellyplugsg3` … | light / outlet / switch + power/energy where measured | 🟡 |
 | Covers / rollers (2.5 roller, Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyswitch25`, `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
