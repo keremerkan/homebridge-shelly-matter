@@ -199,4 +199,4 @@ failure with no retry, dropped parts-list notifications).
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already
   satisfied since the platform only constructs with a config block)
-- README: uninstall warning present; example config English-only
+- README: uninstall warning present; example config English-only; device table statuses current (new tested confirmations, new mappings)

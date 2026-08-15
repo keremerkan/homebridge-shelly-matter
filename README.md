@@ -111,6 +111,38 @@ if you own one and want it prioritized — we can usually provide a beta build t
 
 Not mappable to Matter: gas sensors (no Matter device type), vibration.
 
+### Device table
+
+The device id (shown in the plugin's log and settings page, e.g. `shellyplus1-A1B2C3`)
+identifies the model. Statuses: ✅ tested on real hardware · 🧪 in beta with a field
+tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [ask for it](https://github.com/keremerkan/homebridge-shelly-matter/issues) · ❌ not mappable to Matter.
+
+| Device | Device id starts with | Exposed as | Status |
+|---|---|---|---|
+| Shelly 1 | `shelly1` | light / outlet / switch | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
+| Shelly Plus 1 | `shellyplus1` | light / outlet / switch | ✅ |
+| Shelly Plus Plug S | `shellyplusplugs` | outlet + power/energy | ✅ |
+| Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
+| Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
+| Shelly Dimmer 2 | `shellydimmer2` | dimmable light | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
+| Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | 🧪 [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
+| Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | 🧪 [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
+| Other Gen 1 relays/plugs (1L, 1PM, 2, 2.5 relay, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyswitch25`, `shellyplug` … | light / outlet / switch (Gen 1 metering not mapped) | 🟡 |
+| Gen 2+ relays (Plus 1PM, Plus 2PM switch, Pro 1/1PM/2/3, Minis, Gen3/Gen4 models, outdoor plugs) | `shellyplus1pm`, `shellyplus2pm`, `shellypro1pm`, `shellypro3`, `shelly1g3`, `shelly1mini`, `shellyplugsg3` … | light / outlet / switch + power/energy where measured | 🟡 |
+| Covers / rollers (2.5 roller, Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyswitch25`, `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
+| Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
+| Newer H&T / Flood generations (Plus H&T, H&T Gen3, Flood Gen4) | `shellyplusht`, `shellyhtg3`, `shellyfloodg4` | temperature + humidity / water leak + battery | 🟡 |
+| Door/Window sensors | `shellydw2` … | contact + battery | ⏳ |
+| Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
+| Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
+| Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
+| RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
+| Energy meters (EM, 3EM, Pro EM, Pro 3EM, PM Mini) | `shellyem`, `shellyem3`, `shellypro3em`, `shellypmmini` … | electrical sensor | ⏳ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
+| TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
+| BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
+| Shelly Gas | `shellygas` | — (no Matter device type) | ❌ |
+| Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
+
 Devices without supported components are discovered but skipped with a log message.
 
 ## Configuration
