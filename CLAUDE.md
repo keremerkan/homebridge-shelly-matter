@@ -121,17 +121,12 @@ support matrix). devices.json records per-channel `kinds` for the UI.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
-## Local Homebridge patch (until the fixes ship in a release)
+## Upstream Homebridge status
 
-Production requires patched Homebridge dist files (restore cached accessories
-into the aggregator BEFORE the server node goes online + reconcile plugin
-re-registrations in place). Without it, a paired controller resubscribes within
-1s of server start, sees a shrunken parts list, and deletes devices (rooms
-lost). Upstream: **merged as homebridge/homebridge#3969**; re-apply
-`patches/*.diff` to `node_modules/homebridge/dist/matter/` after any Homebridge
-update until a release contains it. Remaining upstream gaps tracked in
-homebridge/homebridge#3970 (silent registration drop, storage-lock start
-failure with no retry, dropped parts-list notifications).
+All the core Matter fixes this plugin depended on ship in Homebridge 2.3.0
+(#3969, #3970's items, #3972, #3973, #3976, #3977) - no dist patches are
+needed anymore; `patches/` is historical evidence only. engines enforces
+>=2.3.0.
 
 ## Homebridge/Matter operational knowledge
 
@@ -171,7 +166,8 @@ failure with no retry, dropped parts-list notifications).
   (see identity rotation above).
 - Mixed-version hub fleets (tvOS 26 + 27) cause inconsistent Matter/energy
   behavior; isolate to a single tvOS 27 hub when debugging.
-- Feedback Assistant drafts for the above: `~/Desktop/apple-feedback-drafts.md`.
+- Feedback Assistant reports for the above are FILED (FB IDs + drafts:
+  `~/Developer/Homebridge/apple-feedback/apple-feedback-drafts.md`).
 
 ## Testing
 
