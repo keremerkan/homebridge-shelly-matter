@@ -107,7 +107,6 @@ if you own one and want it prioritized — we can usually provide a beta build t
 - RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
 - Sensors: Door/Window (contact), Motion, Smoke — including battery level
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
-- Standalone energy meters (EM, 3EM, Pro EM, PM Mini)
 - TRV / thermostats, and BLU devices via a Shelly BLE gateway
 
 Not mappable to Matter: gas sensors (no Matter device type), vibration.
@@ -138,7 +137,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
-| Energy meters (EM, 3EM, Pro EM, Pro 3EM, PM Mini) | `shellyem`, `shellyem3`, `shellypro3em`, `shellypmmini` … | electrical sensor | ⏳ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
+| Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | 🧪 [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
+| Other energy meters (EM, 3EM, Pro EM, Pro 3EM, PM Mini) | `shellyem`, `shellyem3`, `shellypro3em`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists); Apple shows no measurement tile for relay-less meters | 🟡 [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
 | Shelly Gas | `shellygas` | — (no Matter device type) | ❌ |

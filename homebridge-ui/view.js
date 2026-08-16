@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, 
  */
 
 /** Component kinds newly supported but not yet validated on real hardware; the UI badges them. */
-const UNTESTED_KINDS = ['cover', 'dimmer', 'temperature', 'humidity', 'flood'];
+const UNTESTED_KINDS = ['cover', 'dimmer', 'temperature', 'humidity', 'flood', 'meter'];
 
 /** Read-only sensor kinds: no accessory type choice, no splitting, one physical unit. */
 const SENSOR_KINDS = ['temperature', 'humidity', 'flood'];
@@ -40,6 +40,7 @@ export function deviceView({ config, devices } = {}) {
         hidden: entry?.hidden === true,
         split: splitChannelsEnabled(entry),
         sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every((kind) => SENSOR_KINDS.includes(kind)),
+        splittable: !Array.isArray(device.kinds) || device.kinds.every((kind) => ['switch', 'cover', 'dimmer'].includes(kind)),
         sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter((kind) => SENSOR_KINDS.includes(kind)) : [],
       };
     });

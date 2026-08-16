@@ -55,7 +55,7 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
  * lights. Plug-in devices (Plug S, Plug US/UK/IT, Gen 1 Plug...) all carry
  * 'plug' in the device id.
  */
-export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') ? 'outlet' : 'light');
+export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') || deviceId.startsWith('shellyem') ? 'outlet' : 'light');
 
 /**
  * Splitting multi-channel devices into separate accessories is the DEFAULT

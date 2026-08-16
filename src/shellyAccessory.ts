@@ -15,15 +15,18 @@ import { isValidNumber, isValidObject } from './shelly/utils/index.js';
  * configurable accessory type (light/outlet/switch); covers and dimmers have
  * a fixed Matter device type.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood';
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'meter';
 
 /** A part's identity token: the accessory type for switches, the kind otherwise. */
-type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood';
+type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'meter';
 
 /** Sensor kinds have no user-configurable type, no handlers, and never split. */
 const SENSOR_KINDS = ['temperature', 'humidity', 'flood'] as const;
 const isSensorKind = (kind: ComponentKind): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
 const SENSOR_PART_LABEL: Record<string, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak' };
+
+/** Kinds whose channels may split into separate accessories (sensors and meters never do). */
+const isSplittableKind = (kind: ComponentKind): boolean => kind === 'switch' || kind === 'cover' || kind === 'dimmer';
 
 // Matter electrical measurement attributes use milli-units: mV, mA, mW, mWh.
 const milli = (value: number): number => Math.round(value * 1000);
@@ -112,6 +115,15 @@ const PROPERTY_MAP: {
   { property: 'tC', cluster: 'temperatureMeasurement', convert: (v) => (isValidNumber(v, -273, 350) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['temperature'] },
   { property: 'value', cluster: 'relativeHumidityMeasurement', convert: (v) => (isValidNumber(v, 0, 100) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['humidity'] },
   { property: 'flood', cluster: 'booleanState', convert: (v) => (typeof v === 'boolean' ? { stateValue: v } : undefined), kinds: ['flood'] },
+  // Meter (PowerMeter) components: em1/em/pm1 report plain W/V/A/Wh; the
+  // vendored layer folds the em1data/emdata energy counters into the same
+  // component. powerFactor is hundredths of a percent, frequency is mHz.
+  { property: 'act_power', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v) ? { activePower: milli(v) } : undefined), kinds: ['meter'], metered: true },
+  { property: 'aprt_power', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { apparentPower: milli(v) } : undefined), kinds: ['meter'], metered: true },
+  { property: 'freq', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { frequency: milli(v) } : undefined), kinds: ['meter'], metered: true },
+  { property: 'pf', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, -1, 1) ? { powerFactor: Math.round(v * 10000) } : undefined), kinds: ['meter'], metered: true },
+  { property: 'total_act_energy', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyImported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
+  { property: 'total_act_ret_energy', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyExported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
 ];
 
 /** Per-kind property lookup, so a kind only ever sees its own rows. */
@@ -122,6 +134,7 @@ const PROPERTY_MAPS: Record<ComponentKind, Map<string, (typeof PROPERTY_MAP)[num
   temperature: new Map(),
   humidity: new Map(),
   flood: new Map(),
+  meter: new Map(),
 };
 for (const entry of PROPERTY_MAP) {
   for (const kind of entry.kinds ?? (Object.keys(PROPERTY_MAPS) as ComponentKind[])) {
@@ -157,6 +170,19 @@ const powerSourceClusterFor = (battery: ShellyComponent): ClusterState => ({
   ...(powerSourceFragment(battery.getValue('level')) ?? { batChargeLevel: 0 }),
 });
 
+/** Initial electrical cluster state contributed by a merged meter component. */
+function meterClustersFor(meter: ShellyComponent, metering: boolean): Record<string, ClusterState> {
+  const clusters: Record<string, ClusterState> = {};
+  if (!metering) return clusters;
+  for (const entry of PROPERTY_MAPS.meter.values()) {
+    if (!meter.hasProperty(entry.property)) continue;
+    const fragment = entry.convert(meter.getValue(entry.property));
+    if (fragment === undefined) continue;
+    Object.assign((clusters[entry.cluster] ??= {}), fragment);
+  }
+  return clusters;
+}
+
 /** The parent-level powerSource state of an accessory, if it carries one. */
 const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined =>
   (accessory as { clusters?: Record<string, ClusterState> }).clusters?.powerSource;
@@ -164,6 +190,8 @@ const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefi
 export interface MappedComponent {
   component: ShellyComponent;
   kind: ComponentKind;
+  /** A same-index PowerMeter component whose measurements merge onto this actuator's endpoint. */
+  meter?: ShellyComponent;
 }
 
 /** The components this plugin can expose, in device order. */
@@ -187,6 +215,17 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
       else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
     }
   }
+  // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
+  // the protocol layer): a meter with a same-index actuator merges its
+  // measurements onto that endpoint (the shape Apple Home fully supports -
+  // live tile wattage on an outlet); meters without one become their own
+  // ElectricalSensor part.
+  for (const [, component] of device) {
+    if (component.name !== 'PowerMeter') continue;
+    const actuator = mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter);
+    if (actuator) actuator.meter = component;
+    else mapped.push({ component, kind: 'meter' });
+  }
   return mapped;
 }
 
@@ -201,13 +240,18 @@ function meteringEnabled(platform: ShellyMatterPlatform, device: ShellyDevice): 
 
 function visibleComponents(platform: ShellyMatterPlatform, device: ShellyDevice): MappedComponent[] {
   const entry = configForDevice(platform.config, device.id, device.host);
-  return mappedComponents(device).filter(({ component }) => channelConfig(entry, component.index)?.hidden !== true);
+  const metering = entry?.powerMetering !== false;
+  return mappedComponents(device).filter(({ component, kind }) => {
+    if (kind === 'meter' && !metering) return false;
+    return channelConfig(entry, component.index)?.hidden !== true;
+  });
 }
 
 function matterDeviceTypeFor(platform: ShellyMatterPlatform, token: PartToken) {
   if (token === 'temperature') return platform.matter.deviceTypes.TemperatureSensor;
   if (token === 'humidity') return platform.matter.deviceTypes.HumiditySensor;
   if (token === 'flood') return platform.matter.deviceTypes.LeakSensor;
+  if (token === 'meter') return platform.matter.deviceTypes.ElectricalSensor;
   if (token === 'cover') return platform.matter.deviceTypes.WindowCovering;
   if (token === 'dimmer') return platform.matter.deviceTypes.DimmableLight;
   if (token === 'switch') return platform.matter.deviceTypes.OnOffSwitch;
@@ -224,6 +268,7 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
     temperature: { temperatureMeasurement: { measuredValue: null } },
     humidity: { relativeHumidityMeasurement: { measuredValue: null } },
     flood: { booleanState: { stateValue: false } },
+    meter: { electricalPowerMeasurement: { activePower: 0 } },
   };
   const clusters: Record<string, ClusterState> = SENSOR_PRIMARY[kind]
     ? Object.fromEntries(Object.entries(SENSOR_PRIMARY[kind]).map(([cluster, attributes]) => [cluster, { ...attributes }]))
@@ -247,8 +292,8 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
  * accessories re-registered from the cache before the device has connected.
  */
 function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId: string, kind: ComponentKind) {
-  // Sensors are read-only: no commands, no handlers.
-  if (isSensorKind(kind)) return undefined;
+  // Sensors and meters are read-only: no commands, no handlers.
+  if (isSensorKind(kind) || kind === 'meter') return undefined;
   const resolve = (action: string): ShellyComponent | undefined => {
     const component = platform.shellyComponent(deviceId, componentId);
     if (!component) platform.log.warn(`Shelly ${deviceId} is not connected - cannot ${action} ${componentId}.`);
@@ -313,6 +358,8 @@ interface ShellyAccessoryContext {
    */
   generation?: number;
   partTypes: Record<string, PartToken>;
+  /** Meter component merged onto a part's endpoint, by part id (EM-style devices). */
+  partMeters?: Record<string, string>;
   partComponents: Record<string, string>;
 }
 
@@ -320,7 +367,7 @@ interface ShellyAccessoryContext {
 const generationSuffix = (generation: number): string => (generation > 0 ? `|g${generation}` : '');
 
 /** The component kind a part identity token belongs to. */
-const kindOfToken = (token: PartToken): ComponentKind => (token === 'cover' || token === 'dimmer' || isSensorKind(token as ComponentKind) ? (token as ComponentKind) : 'switch');
+const kindOfToken = (token: PartToken): ComponentKind => (token === 'cover' || token === 'dimmer' || token === 'meter' || isSensorKind(token as ComponentKind) ? (token as ComponentKind) : 'switch');
 
 interface TypedComponent extends MappedComponent {
   token: PartToken;
@@ -342,19 +389,23 @@ function buildOneAccessory(
   const uuid = platform.matter.uuid.generate(seed);
   const partTypes: Record<string, PartToken> = {};
   const partComponents: Record<string, string> = {};
-  const parts: MatterAccessoryPart[] = typed.map(({ component, kind, token }) => {
+  const partMeters: Record<string, string> = {};
+  const parts: MatterAccessoryPart[] = typed.map(({ component, kind, token, meter }) => {
     const partId = partIdFor(component, token);
     partTypes[partId] = token;
     partComponents[partId] = component.id;
+    if (meter) partMeters[partId] = meter.id;
     return {
       id: partId,
       displayName: partNameFor(component),
       deviceType: matterDeviceTypeFor(platform, token),
-      clusters: clustersFor(component, kind, metering),
+      // A merged meter contributes its electrical clusters to the actuator's
+      // own endpoint - the shape controllers (Apple Home included) support.
+      clusters: { ...clustersFor(component, kind, metering), ...(meter ? meterClustersFor(meter, metering) : {}) },
       handlers: handlersFor(platform, uuid, device.id, component.id, partId, kind),
     };
   });
-  const context: ShellyAccessoryContext = { deviceId: device.id, deviceName, generation, partTypes, partComponents };
+  const context: ShellyAccessoryContext = { deviceId: device.id, deviceName, generation, partTypes, partComponents, ...(Object.keys(partMeters).length ? { partMeters } : {}) };
   return {
     UUID: uuid,
     displayName,
@@ -395,10 +446,13 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // Multi-channel names get an index suffix (tiles are renamed in the Home app);
   // sensor parts get their measurement label instead (their index is not a channel).
   const kindById = new Map(typed.map(({ component, kind }) => [component.id, kind]));
+  const actuatorCount = typed.filter(({ kind }) => isSplittableKind(kind)).length;
   const channelName = (component: ShellyComponent) => {
-    const label = SENSOR_PART_LABEL[kindById.get(component.id) ?? ''];
+    const kind = kindById.get(component.id);
+    if (kind === 'meter') return `${displayName} Meter ${component.index + 1}`;
+    const label = SENSOR_PART_LABEL[kind ?? ''];
     if (label !== undefined) return `${displayName} ${label}`;
-    return visible.length === 1 ? displayName : `${displayName} ${component.index + 1}`;
+    return actuatorCount <= 1 ? displayName : `${displayName} ${component.index + 1}`;
   };
   // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
   // cluster - the core composes the Battery feature from these attributes.
@@ -411,9 +465,9 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // included. Controllers then see a clean remove+add; a parent that keeps
   // its identity while its children change becomes an uneditable
   // "Not Supported" husk in Apple Home.
-  // Sensor devices are one physical unit - their parts (temperature +
-  // humidity) never split into separate accessories.
-  if (splitChannelsEnabled(entry) && visible.length > 1 && typed.every(({ kind }) => !isSensorKind(kind))) {
+  // Sensor and meter parts never split into separate accessories (one
+  // physical unit / measurement channels of one meter).
+  if (splitChannelsEnabled(entry) && visible.length > 1 && typed.every(({ kind }) => isSplittableKind(kind))) {
     return typed.map((one) => {
       // Split accessories can carry a per-channel name (grouped parts cannot
       // reach the Home app with one, so channel names only apply here).
@@ -441,6 +495,11 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   temperature: 'temperature',
   humidity: 'humidity',
   flood: 'flood',
+  em1: 'meter',
+  em: 'meter',
+  pm1: 'meter',
+  meter: 'meter',
+  emeter: 'meter',
 };
 
 interface CachedComponent {
@@ -448,6 +507,8 @@ interface CachedComponent {
   index: number;
   kind: ComponentKind;
   token: PartToken;
+  /** Meter component merged onto this part's endpoint, when the cache recorded one. */
+  meterId?: string;
   /** Cluster snapshot carried from the cached part, so shells keep the same cluster shape. */
   clusters: Record<string, ClusterState>;
 }
@@ -492,10 +553,12 @@ function shellFromCache(
   const uuid = platform.matter.uuid.generate(seed);
   const partTypes: Record<string, PartToken> = {};
   const partComponents: Record<string, string> = {};
+  const partMeters: Record<string, string> = {};
   const parts: MatterAccessoryPart[] = components.map((component) => {
     const partId = `${component.componentId.replace(':', '-')}-${component.token}`;
     partTypes[partId] = component.token;
     partComponents[partId] = component.componentId;
+    if (component.meterId !== undefined) partMeters[partId] = component.meterId;
     return {
       id: partId,
       displayName: partNameFor(component),
@@ -504,7 +567,7 @@ function shellFromCache(
       handlers: handlersFor(platform, uuid, deviceId, component.componentId, partId, component.kind),
     };
   });
-  const context: ShellyAccessoryContext = { deviceId, deviceName, generation, partTypes, partComponents };
+  const context: ShellyAccessoryContext = { deviceId, deviceName, generation, partTypes, partComponents, ...(Object.keys(partMeters).length ? { partMeters } : {}) };
   return {
     UUID: uuid,
     displayName,
@@ -534,7 +597,7 @@ function shellFromCache(
 export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[]): { shells: MatterAccessory[]; generation: number } | undefined {
   const entry = configForDevice(platform.config, deviceId);
   const validToken = (token: unknown): PartToken =>
-    (token === 'cover' || token === 'dimmer' || isSensorKind(token as ComponentKind) || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
+    (token === 'cover' || token === 'dimmer' || token === 'meter' || isSensorKind(token as ComponentKind) || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
 
   const components = new Map<string, CachedComponent>();
   let template: MatterAccessory | undefined;
@@ -549,12 +612,12 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
     for (const part of cached.parts ?? []) {
       const componentId = context.partComponents[part.id];
       if (componentId === undefined || components.has(componentId)) continue;
-      const match = componentId.match(/^([a-z_]+)(?::?(\d+))?$/i);
+      const match = componentId.match(/^(.+?):(\d+)$/) ?? componentId.match(/^([a-z_]+)$/i);
       const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
       if (!match || !kind) continue;
       const index = match[2] !== undefined ? Number(match[2]) : -1;
       const token = kind === 'switch' ? resolveConfiguredAccessoryType(platform.config, deviceId, undefined, index) : kind;
-      components.set(componentId, { componentId, index, kind, token: validToken(token), clusters: part.clusters });
+      components.set(componentId, { componentId, index, kind, token: validToken(token), clusters: part.clusters, meterId: context.partMeters?.[part.id] });
     }
   }
   if (!template || components.size === 0) return undefined;
@@ -567,15 +630,17 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
     .filter((component) => channelConfig(entry, component.index)?.hidden !== true)
     .sort((a, b) => a.index - b.index);
   if (visible.length === 0) return { shells: [], generation: cachedGeneration };
+  const actuatorCount = visible.filter((component) => isSplittableKind(component.kind)).length;
   const channelName = (component: CachedComponent) => {
+    if (component.kind === 'meter') return `${deviceName} Meter ${component.index + 1}`;
     const label = SENSOR_PART_LABEL[component.kind];
     if (label !== undefined) return `${deviceName} ${label}`;
-    return visible.length === 1 ? deviceName : `${deviceName} ${component.index + 1}`;
+    return actuatorCount <= 1 ? deviceName : `${deviceName} ${component.index + 1}`;
   };
   const parentClusters = accessoryPowerSource(template) ? { powerSource: accessoryPowerSource(template)! } : undefined;
 
   const buildAt = (generation: number): MatterAccessory[] => {
-    if (splitChannelsEnabled(entry) && visible.length > 1 && visible.every((component) => !isSensorKind(component.kind))) {
+    if (splitChannelsEnabled(entry) && visible.length > 1 && visible.every((component) => isSplittableKind(component.kind))) {
       return visible.map((one) => {
         const name = channelConfig(entry, one.index)?.name ?? channelName(one);
         return shellFromCache(platform, deviceId, deviceName, generation, template!, [one], `${deviceId}|split|${one.index}:${one.token}${generationSuffix(generation)}`, name, () => name, metering);
@@ -623,15 +688,17 @@ export function accessorySignature(accessory: MatterAccessory): string {
  * registered shape (context), not by re-deriving from config, so a split
  * accessory only ever touches its own channel.
  */
-function accessoryParts(device: ShellyDevice, accessory: MatterAccessory): { partId: string; component: ShellyComponent; kind: ComponentKind }[] {
+function accessoryParts(device: ShellyDevice, accessory: MatterAccessory): { partId: string; component: ShellyComponent; kind: ComponentKind; meter?: ShellyComponent }[] {
   const context = accessory.context as Partial<ShellyAccessoryContext> | undefined;
-  const resolved: { partId: string; component: ShellyComponent; kind: ComponentKind }[] = [];
+  const resolved: { partId: string; component: ShellyComponent; kind: ComponentKind; meter?: ShellyComponent }[] = [];
   for (const part of accessory.parts ?? []) {
     const componentId = context?.partComponents?.[part.id];
     const component = componentId !== undefined ? device.getComponent(componentId) : undefined;
     if (!component) continue;
     const token = context?.partTypes?.[part.id];
-    resolved.push({ partId: part.id, component, kind: kindOfToken((token ?? 'light') as PartToken) });
+    const meterId = context?.partMeters?.[part.id];
+    const meter = meterId !== undefined ? device.getComponent(meterId) : undefined;
+    resolved.push({ partId: part.id, component, kind: kindOfToken((token ?? 'light') as PartToken), meter });
   }
   return resolved;
 }
@@ -639,9 +706,14 @@ function accessoryParts(device: ShellyDevice, accessory: MatterAccessory): { par
 /** Pushes the device's current state into an already-registered accessory. */
 export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyDevice, accessory: MatterAccessory): void {
   const metering = meteringEnabled(platform, device);
-  for (const { partId, component, kind } of accessoryParts(device, accessory)) {
+  for (const { partId, component, kind, meter } of accessoryParts(device, accessory)) {
     for (const [cluster, attributes] of Object.entries(clustersFor(component, kind, metering))) {
       void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
+    }
+    if (meter) {
+      for (const [cluster, attributes] of Object.entries(meterClustersFor(meter, metering))) {
+        void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
+      }
     }
   }
   // Battery lives on the composed parent, not on a part.
@@ -656,21 +728,24 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
   const metering = meteringEnabled(platform, device);
   const lastEnergyPush = new Map<string, number>();
 
-  for (const { partId, component, kind } of accessoryParts(device, accessory)) {
-    const propertyMap = PROPERTY_MAPS[kind];
-
-    component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
-      const entry = propertyMap.get(property);
-      if (!entry || (entry.metered && !metering)) return;
-      // Check the throttle window before converting so suppressed energy
-      // updates cost nothing; stamp only after a successful conversion.
-      const throttleKey = entry.throttled ? `${component.id}:${property}` : undefined;
-      if (throttleKey !== undefined && Date.now() - (lastEnergyPush.get(throttleKey) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
-      const fragment = entry.convert(value);
-      if (fragment === undefined) return;
-      if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
-      void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, fragment, partId);
-    });
+  for (const { partId, component, kind, meter } of accessoryParts(device, accessory)) {
+    const forward = (source: ShellyComponent, propertyMap: (typeof PROPERTY_MAPS)[ComponentKind]) => {
+      source.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
+        const entry = propertyMap.get(property);
+        if (!entry || (entry.metered && !metering)) return;
+        // Check the throttle window before converting so suppressed energy
+        // updates cost nothing; stamp only after a successful conversion.
+        const throttleKey = entry.throttled ? `${source.id}:${property}` : undefined;
+        if (throttleKey !== undefined && Date.now() - (lastEnergyPush.get(throttleKey) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
+        const fragment = entry.convert(value);
+        if (fragment === undefined) return;
+        if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
+        void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, fragment, partId);
+      });
+    };
+    forward(component, PROPERTY_MAPS[kind]);
+    // A merged meter's updates land on the actuator's endpoint.
+    if (meter) forward(meter, PROPERTY_MAPS.meter);
   }
 
   // Battery updates target the composed parent's PowerSource cluster.
