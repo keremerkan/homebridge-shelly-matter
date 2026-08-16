@@ -26,7 +26,7 @@ HAP accessories, pairing the HAP QR code adds an **empty bridge with no
 devices**. The Matter pairing code and QR are printed in the Homebridge log at
 startup. Turning off **"Enable HAP"** in the bridge settings removes the
 misleading HAP QR code entirely — recommended, since this plugin does not use
-HAP at all. Homebridge UI **v5.27.1+** does all of this automatically: it
+HAP at all. Homebridge UI **v5.28.0+** does all of this automatically: it
 recognizes this plugin as Matter-only and creates its child bridges with
 Matter on and HAP off.
 
@@ -48,7 +48,7 @@ Matter on and HAP off.
   A Homebridge bridge cannot carry a device attestation certificate, so this
   is an Apple policy limitation, not a plugin gap.
 - Commissioned controllers (fabrics) are shown in the Homebridge UI starting
-  with v5.27.1 (plugin menu > Bridge Settings); this plugin also lists them in
+  with v5.28.0 (plugin menu > Bridge Settings); this plugin also lists them in
   its own settings page ("Connected controllers").
 
 ## Device support
