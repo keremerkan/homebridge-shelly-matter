@@ -5,7 +5,7 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 `homebridge-shelly-matter` exposes Shelly devices to Apple Home (and other
-Matter controllers) through Homebridge 2.2+'s Matter API (`api.matter`),
+Matter controllers) through Homebridge 2.3+'s Matter API (`api.matter`),
 including live power and cumulative energy metering (surfaced by iOS/tvOS 27+).
 No HAP accessories are published; the plugin runs best in a child bridge with
 `hap.enabled: false` and `matter: {}`.
@@ -36,9 +36,9 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   array from the table's neutral selections (entry shape, host auto-fill,
   channel nesting, powerMetering carry-over). The browser page only renders
   rows and harvests DOM values. The UI needs `dist/` built to work.
-- `UPSTREAM-ISSUES.md` — evidence log of all Homebridge Matter bugs found
-  (the fixes all ship in Homebridge 2.3.0; the old `patches/` directory was
-  removed once nothing could ever need it again - see git history).
+- The old `patches/` directory and `UPSTREAM-ISSUES.md` evidence log were
+  removed once every fix shipped in Homebridge 2.3.0 - the upstream PRs
+  (#3969-#3977) are the record now; see git history for the files.
 
 ## Config model
 
@@ -49,10 +49,12 @@ Resolution: channel setting → device setting → kind default (id contains
 'plug' → outlet, else light). Entries record deviations, EXCEPT `host` which
 the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
-`accessoryType` applies to switch components only — cover and dimmer channels
-have fixed Matter types (`ComponentKind` in shellyAccessory.ts:
-switch/cover/dimmer; covers+dimmers are SUPPORTED-UNTESTED, see README
-support matrix). devices.json records per-channel `kinds` for the UI.
+`accessoryType` applies to switch components only — every other kind is fixed
+(`ComponentKind` in shellyAccessory.ts: switch/cover/dimmer plus the read-only
+temperature/humidity/flood/meter). Sensor and meter parts never split and have
+no type choice; a meter with a same-index actuator merges onto that endpoint
+(`context.partMeters`). Tested/untested status per model lives in the README
+device table. devices.json records per-channel `kinds` for the UI.
 
 ## Hard-won constraints (do not silently change)
 
