@@ -36,9 +36,9 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   array from the table's neutral selections (entry shape, host auto-fill,
   channel nesting, powerMetering carry-over). The browser page only renders
   rows and harvests DOM values. The UI needs `dist/` built to work.
-- `patches/` — dist-level diffs of the local Homebridge patch (see below) and
-  the upstream PR materials.
-- `UPSTREAM-ISSUES.md` — evidence log of all Homebridge Matter bugs found.
+- `UPSTREAM-ISSUES.md` — evidence log of all Homebridge Matter bugs found
+  (the fixes all ship in Homebridge 2.3.0; the old `patches/` directory was
+  removed once nothing could ever need it again - see git history).
 
 ## Config model
 
@@ -125,8 +125,7 @@ support matrix). devices.json records per-channel `kinds` for the UI.
 
 All the core Matter fixes this plugin depended on ship in Homebridge 2.3.0
 (#3969, #3970's items, #3972, #3973, #3976, #3977) - no dist patches are
-needed anymore; `patches/` is historical evidence only. engines enforces
->=2.3.0.
+needed anymore. engines enforces >=2.3.0.
 
 ## Homebridge/Matter operational knowledge
 
