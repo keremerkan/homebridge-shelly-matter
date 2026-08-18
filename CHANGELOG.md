@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Energy meter support** ([#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7)): Shelly EM-family measurement channels (`em1`/`em`/`pm1` components, with their energy counters) are now mapped to Matter. A measurement channel with a same-numbered relay merges onto that relay's endpoint - the shape Apple Home fully supports, live tile wattage included; channels without a relay become their own electrical sensor endpoints (fully rendered by e.g. Home Assistant; Apple Home shows the accessory but no measurement tile). Exposes active/apparent power, voltage, current, frequency, power factor, and imported/returned energy.
 - **EM-family devices default to the outlet accessory type** (their whole point is metering, and Apple Home shows tile wattage only on outlets). This applies to new devices; existing configurations are untouched.
 
+### Fixed
+
+- **Accessories no longer rotate on every restart for host-keyed configurations** ([#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)): the pre-online cache rebuild resolved config entries without the device's host, so an entry that only matches by host (or a per-channel deviation on one) produced a different accessory identity than live registration - Apple Home then saw a new device on every restart, losing the room and automations each time. The rebuild now resolves with the device's last known host (from devices.json).
+
 ### Upgrade note
 
 - On an EM device that was already exposed as a bare relay, the accessory keeps its identity and gains the measurement clusters in place. If readings do not appear right after the update, restart Homebridge once more - the bridge's accessory cache picks up new cluster shapes on the following restart.

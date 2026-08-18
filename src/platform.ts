@@ -157,9 +157,19 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // Started from three idempotent triggers so Gen 2/3-only setups never
     // bind the port: any Gen 1 device in devices.json (here, before any
     // network activity), a Gen 1 mDNS discovery, or a Gen 1 device add.
+    // devices.json also supplies each device's last known HOST for the cache
+    // reconciliation below: config entries keyed by host (or per-channel
+    // deviations on them) must resolve identically in the pre-online rebuild
+    // and in live registration, or the rebuilt shells get a different
+    // identity and the accessory rotates (room + automations lost) on every
+    // restart (#8).
+    const hostById = new Map<string, string>();
     try {
-      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as { gen?: number }[];
+      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as { id?: string; host?: string; gen?: number }[];
       if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
+      for (const device of known) {
+        if (typeof device.id === 'string' && typeof device.host === 'string') hostById.set(device.id, device.host);
+      }
     } catch {
       // No devices.json yet - the discovery/add triggers below cover it.
     }
@@ -184,14 +194,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       cachedByDevice.set(deviceId, list);
     }
     for (const [deviceId, cachedList] of cachedByDevice) {
-      if (this.isHidden(deviceId)) {
+      const host = hostById.get(deviceId);
+      if (this.isHidden(deviceId, host)) {
         // Remove hidden devices from bridge and cache.
         for (const cached of cachedList) {
           this.enqueue(`Failed to unregister hidden Shelly ${deviceId}`, () => this.unregisterAccessory(cached));
         }
         continue;
       }
-      const reconciled = expectedShellsFromCache(this, deviceId, cachedList);
+      const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host);
       if (!reconciled) continue;
       const expected = reconciled.shells;
       this.generationByDevice.set(deviceId, reconciled.generation);

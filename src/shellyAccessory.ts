@@ -594,8 +594,8 @@ function shellFromCache(
  *
  * Returns undefined for foreign/corrupt cache entries.
  */
-export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[]): { shells: MatterAccessory[]; generation: number } | undefined {
-  const entry = configForDevice(platform.config, deviceId);
+export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[], host?: string): { shells: MatterAccessory[]; generation: number } | undefined {
+  const entry = configForDevice(platform.config, deviceId, host);
   const validToken = (token: unknown): PartToken =>
     (token === 'cover' || token === 'dimmer' || token === 'meter' || isSensorKind(token as ComponentKind) || ACCESSORY_TYPES.includes(token as AccessoryType) ? (token as PartToken) : defaultAccessoryType(deviceId));
 
@@ -616,7 +616,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
       if (!match || !kind) continue;
       const index = match[2] !== undefined ? Number(match[2]) : -1;
-      const token = kind === 'switch' ? resolveConfiguredAccessoryType(platform.config, deviceId, undefined, index) : kind;
+      const token = kind === 'switch' ? resolveConfiguredAccessoryType(platform.config, deviceId, host, index) : kind;
       components.set(componentId, { componentId, index, kind, token: validToken(token), clusters: part.clusters, meterId: context.partMeters?.[part.id] });
     }
   }
