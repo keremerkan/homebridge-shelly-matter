@@ -145,6 +145,12 @@
         await loadView();
         status.textContent = `${devices.length} device(s) ${source}. Press Save when done - saved changes take effect after Homebridge (or this child bridge) restarts.`;
         render();
+        // Normalize once on load: rebuild the listed devices' entries with the
+        // plugin's own config rules. A config written by the raw schema form
+        // (materialized defaults, channel items without numbers) regenerates
+        // in clean deviation-only form - pressing Save persists the healed
+        // version and clears any validation warning.
+        await applySelections();
       } else {
         status.textContent = source === 'known by the plugin'
           ? 'No devices seen by the plugin yet. Press Scan network to discover them, or add a device by its IP address in the configuration below.'

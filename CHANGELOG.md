@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gen 1 dual-mode devices (Shelly 2, 2.5) no longer expose the inactive mode's components** ([#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)): the protocol layer reports both the relays and the roller regardless of the configured mode, so a relay-mode 2.5 also produced a phantom cover accessory - one sharing its display name and serial with a real switch, which Apple Home's record matching can confuse across restarts (rooms shuffle between the two). Only the active mode's components are mapped now; in cover mode the roller also carries the device's power metering.
+- The settings page now normalizes the configuration entries when it opens, so a config written by the raw schema form (materialized defaults, channel items without numbers) regenerates in clean form - pressing Save persists it and clears the validation warning.
+- The config schema no longer requires `channel` inside channel entries: the raw schema form creates channel items without it, which failed validation despite being harmless.
+
 - **Accessories no longer rotate on every restart for host-keyed configurations** ([#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)): the pre-online cache rebuild resolved config entries without the device's host, so an entry that only matches by host (or a per-channel deviation on one) produced a different accessory identity than live registration - Apple Home then saw a new device on every restart, losing the room and automations each time. The rebuild now resolves with the device's last known host (from devices.json).
 
 ### Upgrade note

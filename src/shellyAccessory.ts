@@ -208,8 +208,16 @@ export interface MappedComponent {
 export function mappedComponents(device: ShellyDevice): MappedComponent[] {
   const mapped: MappedComponent[] = [];
   for (const [, component] of device) {
-    if (isSwitchComponent(component)) mapped.push({ component, kind: 'switch' });
-    else if (isCoverComponent(component)) mapped.push({ component, kind: 'cover' });
+    // Gen 1 dual-mode devices (2.5, Shelly 2) expose BOTH relay and roller
+    // components regardless of the configured mode - the vendored layer adds
+    // them unconditionally. Map only the active profile's side: the inactive
+    // one is a phantom that in Apple Home even collides with the real
+    // accessory's name and serial (record fights, rooms shuffle).
+    if (isSwitchComponent(component)) {
+      if (device.profile !== 'cover') mapped.push({ component, kind: 'switch' });
+    } else if (isCoverComponent(component)) {
+      if (device.profile !== 'switch') mapped.push({ component, kind: 'cover' });
+    }
     // Light components without brightness (and Rgb/Rgbw/Cct color channels)
     // are not mapped yet - see the README support matrix.
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
