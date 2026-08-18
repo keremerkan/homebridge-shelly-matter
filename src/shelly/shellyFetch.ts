@@ -26,7 +26,7 @@
 import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 
-import { type AnsiLogger, BLUE, CYAN, GREY, RESET } from 'node-ansi-logger';
+import { type AnsiLogger, BLUE, CYAN, GREY, RESET } from './utils/logger.js';
 import { getErrorMessage } from './utils/index.js';
 
 import { createBasicShellyAuth, createDigestShellyAuth, getGen1BodyOptions, getGen2BodyOptions, parseBasicAuthenticateHeader, parseDigestAuthenticateHeader } from './auth.js';

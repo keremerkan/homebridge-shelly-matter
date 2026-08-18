@@ -24,7 +24,7 @@
 import crypto from 'node:crypto';
 import EventEmitter from 'node:events';
 
-import { AnsiLogger, CYAN, db, er, hk, LogLevel, nf, rs, TimestampFormat, wr, zb } from 'node-ansi-logger';
+import { AnsiLogger, CYAN, db, er, hk, LogLevel, nf, rs, TimestampFormat, wr, zb } from './utils/logger.js';
 import { getErrorMessage } from './utils/index.js';
 import { WebSocket } from 'ws';
 

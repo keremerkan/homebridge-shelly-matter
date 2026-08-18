@@ -26,7 +26,7 @@ import EventEmitter from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { AnsiLogger, BLUE, CYAN, db, debugStringify, er, hk, idn, ign, LogLevel, nf, rs, TimestampFormat, zb } from 'node-ansi-logger';
+import { AnsiLogger, BLUE, CYAN, db, debugStringify, er, hk, idn, ign, LogLevel, nf, rs, TimestampFormat, zb } from './utils/logger.js';
 import { getErrorMessage } from './utils/index.js';
 import mdns, { type QueryPacket, type ResponsePacket } from 'multicast-dns';
 

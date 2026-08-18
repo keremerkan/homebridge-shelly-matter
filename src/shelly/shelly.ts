@@ -24,7 +24,7 @@
 import crypto from 'node:crypto';
 import EventEmitter from 'node:events';
 
-import { type AnsiLogger, BRIGHT, CYAN, db, er, hk, LogLevel, MAGENTA, nf, wr, zb } from 'node-ansi-logger';
+import { type AnsiLogger, BRIGHT, CYAN, db, er, hk, LogLevel, MAGENTA, nf, wr, zb } from './utils/logger.js';
 import { getErrorMessage, isValidArray, isValidObject } from './utils/index.js';
 
 import { CoapServer } from './coapServer.js';

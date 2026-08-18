@@ -29,7 +29,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import coap, { globalAgent, type IncomingMessage, type OutgoingMessage, parameters, type Server } from 'coap';
-import { AnsiLogger, BLUE, CYAN, db, debugStringify, er, hk, LogLevel, MAGENTA, nf, RESET, TimestampFormat, wr, zb } from 'node-ansi-logger';
+import { AnsiLogger, BLUE, CYAN, db, debugStringify, er, hk, LogLevel, MAGENTA, nf, RESET, TimestampFormat, wr, zb } from './utils/logger.js';
 import { getErrorMessage } from './utils/index.js';
 
 import type { Shelly } from './shelly.js';

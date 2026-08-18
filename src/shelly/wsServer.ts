@@ -24,7 +24,7 @@
 import EventEmitter from 'node:events';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 
-import { AnsiLogger, CYAN, db, er, hk, LogLevel, rs, TimestampFormat, wr, zb } from 'node-ansi-logger';
+import { AnsiLogger, CYAN, db, er, hk, LogLevel, rs, TimestampFormat, wr, zb } from './utils/logger.js';
 import { getErrorMessage } from './utils/index.js';
 import { WebSocket, WebSocketServer } from 'ws';
 

@@ -29,7 +29,7 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { type AnsiLogger, BLUE, CYAN, db, debugStringify, dn, er, GREEN, hk, idn, type LogLevel, MAGENTA, nf, nt, rk, rs, wr, YELLOW, zb } from 'node-ansi-logger';
+import { type AnsiLogger, BLUE, CYAN, db, debugStringify, dn, er, GREEN, hk, idn, type LogLevel, MAGENTA, nf, nt, rk, rs, wr, YELLOW, zb } from './utils/logger.js';
 import { getErrorMessage, isValidNumber, isValidObject, isValidString } from './utils/index.js';
 
 import type { Shelly } from './shelly.js';

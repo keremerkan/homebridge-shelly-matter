@@ -2,7 +2,7 @@ import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
-import { AnsiLogger, LogLevel, TimestampFormat } from 'node-ansi-logger';
+import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
 import { configForDevice, deviceConfigs } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';

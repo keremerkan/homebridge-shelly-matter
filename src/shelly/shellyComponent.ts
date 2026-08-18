@@ -23,7 +23,7 @@
 
 import EventEmitter from 'node:events';
 
-import { BLUE, CYAN, db, debugStringify, er, GREEN, GREY, YELLOW } from 'node-ansi-logger';
+import { BLUE, CYAN, db, debugStringify, er, GREEN, GREY, YELLOW } from './utils/logger.js';
 import { deepEqual, isValidArray, isValidNumber, isValidObject } from './utils/index.js';
 
 import type { ShellyDevice } from './shellyDevice.js';

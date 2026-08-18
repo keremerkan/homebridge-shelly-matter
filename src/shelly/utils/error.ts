@@ -23,7 +23,7 @@
 
 import { inspect } from 'node:util';
 
-import { type AnsiLogger, RESET } from 'node-ansi-logger';
+import { type AnsiLogger, RESET } from './logger.js';
 
 
 
