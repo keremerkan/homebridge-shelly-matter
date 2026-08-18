@@ -16,8 +16,11 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   [Luligu/matterbridge-shelly](https://github.com/Luligu/matterbridge-shelly)
   (Apache-2.0, see `NOTICE`). Keep diffs against upstream MINIMAL so future
   syncs stay easy: the only local changes are import rewrites
-  (`matterbridge/logger` → `node-ansi-logger`, `matterbridge/utils` →
-  `./utils/index.js`), `src/shelly/utils/` vendored from Luligu/matterbridge,
+  (`matterbridge/logger` and `node-ansi-logger` → the local
+  `./utils/logger.js` shim, `matterbridge/utils` → `./utils/index.js`),
+  `src/shelly/utils/` vendored from Luligu/matterbridge (plus our own
+  `utils/logger.ts` - a minimal node-ansi-logger replacement with a
+  Homebridge-blending standard-color palette),
   two reconnect log lines downgraded `log.info` → `log.debug`
   (`shellyDevice.ts` "is not connected. Starting connection..." and the same
   message in `shelly.ts`) — Gen2 idle-socket reconnect cycling is normal and
