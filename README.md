@@ -67,8 +67,8 @@ one confirmation moves it to tested.
   - Live power (W), voltage, current
   - Cumulative energy (kWh), including returned energy where the device measures it
 - Multi-channel devices appear as **independent accessories per channel by default**, so each channel can live in its own room; set `splitChannels: false` to group them into a single accessory with a control per channel.
-- **Shelly Gen 1 relays and the Dimmer 2** (Shelly 1, Dimmer 2 — confirmed by field testing,
-  [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): on/off, dimmer brightness,
+- **Shelly Gen 1 relays and the Dimmer 2** (Shelly 1, 2.5 in relay mode, Dimmer 2 — confirmed by field
+  testing, [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4), [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)): on/off, dimmer brightness,
   and live state updates from the wall switch over CoIoT (see the Gen 1 note below).
   Gen 1 power metering is not mapped yet.
 - **Battery sensors: Shelly H&T (SHHT-1) and Shelly Flood (SHWT-1)** — confirmed by field
@@ -127,7 +127,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Dimmer 2 | `shellydimmer2` | dimmable light | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
 | Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
-| Other Gen 1 relays/plugs (1L, 1PM, 2, 2.5 relay, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyswitch25`, `shellyplug` … | light / outlet / switch (Gen 1 metering not mapped) | 🟡 |
+| Shelly 2.5 (relay mode) | `shellyswitch25` | 2× light / outlet / switch | ✅ [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8) |
+| Other Gen 1 relays/plugs (1L, 1PM, 2, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyplug` … | light / outlet / switch (Gen 1 metering not mapped) | 🟡 |
 | Gen 2+ relays (Plus 1PM, Plus 2PM switch, Pro 1/1PM/2/3, Minis, Gen3/Gen4 models, outdoor plugs) | `shellyplus1pm`, `shellyplus2pm`, `shellypro1pm`, `shellypro3`, `shelly1g3`, `shelly1mini`, `shellyplugsg3` … | light / outlet / switch + power/energy where measured | 🟡 |
 | Covers / rollers (2.5 roller, Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyswitch25`, `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
 | Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
