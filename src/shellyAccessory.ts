@@ -183,6 +183,14 @@ function meterClustersFor(meter: ShellyComponent, metering: boolean): Record<str
   return clusters;
 }
 
+/**
+ * Meter part label: triphase 'em:' components are the total (index 0) and
+ * phases A/B/C (1-3); every other meter family is numbered per channel.
+ */
+const METER_PHASES = ['Total', 'Phase A', 'Phase B', 'Phase C'];
+const meterPartLabel = (componentId: string, index: number): string =>
+  (componentId.startsWith('em:') && index >= 0 && index < METER_PHASES.length ? METER_PHASES[index] : `Meter ${index + 1}`);
+
 /** The parent-level powerSource state of an accessory, if it carries one. */
 const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined =>
   (accessory as { clusters?: Record<string, ClusterState> }).clusters?.powerSource;
@@ -204,27 +212,29 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
     // are not mapped yet - see the README support matrix.
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
   }
-  // Environment sensors map only on sensor-only devices (H&T, Flood, ...).
-  // Relays expose their INTERNAL device temperature under the same component
-  // names - mapping those would sprout unwanted sensor parts on every relay
-  // and rotate every identity.
-  if (mapped.length === 0) {
-    for (const [, component] of device) {
-      if (component.name === 'Temperature') mapped.push({ component, kind: 'temperature' });
-      else if (component.name === 'Humidity') mapped.push({ component, kind: 'humidity' });
-      else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
-    }
-  }
   // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
   // the protocol layer): a meter with a same-index actuator merges its
   // measurements onto that endpoint (the shape Apple Home fully supports -
   // live tile wattage on an outlet); meters without one become their own
   // ElectricalSensor part.
+  let hasMeters = false;
   for (const [, component] of device) {
     if (component.name !== 'PowerMeter') continue;
+    hasMeters = true;
     const actuator = mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter);
     if (actuator) actuator.meter = component;
     else mapped.push({ component, kind: 'meter' });
+  }
+  // Environment sensors map only on sensor PRODUCTS (H&T, Flood, ...).
+  // Relays and meters expose their INTERNAL device temperature under the
+  // same component names - mapping those would sprout unwanted sensor
+  // parts (and rotate identities).
+  if (!hasMeters && mapped.length === 0) {
+    for (const [, component] of device) {
+      if (component.name === 'Temperature') mapped.push({ component, kind: 'temperature' });
+      else if (component.name === 'Humidity') mapped.push({ component, kind: 'humidity' });
+      else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
+    }
   }
   return mapped;
 }
@@ -449,7 +459,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   const actuatorCount = typed.filter(({ kind }) => isSplittableKind(kind)).length;
   const channelName = (component: ShellyComponent) => {
     const kind = kindById.get(component.id);
-    if (kind === 'meter') return `${displayName} Meter ${component.index + 1}`;
+    if (kind === 'meter') return `${displayName} ${meterPartLabel(component.id, component.index)}`;
     const label = SENSOR_PART_LABEL[kind ?? ''];
     if (label !== undefined) return `${displayName} ${label}`;
     return actuatorCount <= 1 ? displayName : `${displayName} ${component.index + 1}`;
@@ -632,7 +642,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   if (visible.length === 0) return { shells: [], generation: cachedGeneration };
   const actuatorCount = visible.filter((component) => isSplittableKind(component.kind)).length;
   const channelName = (component: CachedComponent) => {
-    if (component.kind === 'meter') return `${deviceName} Meter ${component.index + 1}`;
+    if (component.kind === 'meter') return `${deviceName} ${meterPartLabel(component.componentId, component.index)}`;
     const label = SENSOR_PART_LABEL[component.kind];
     if (label !== undefined) return `${deviceName} ${label}`;
     return actuatorCount <= 1 ? deviceName : `${deviceName} ${component.index + 1}`;
