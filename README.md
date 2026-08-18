@@ -137,7 +137,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
-| Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | 🧪 [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
+| Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
 | Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "channel": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
 | Other energy meters (EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
