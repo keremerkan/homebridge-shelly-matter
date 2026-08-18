@@ -200,6 +200,8 @@ export interface MappedComponent {
   kind: ComponentKind;
   /** A same-index PowerMeter component whose measurements merge onto this actuator's endpoint. */
   meter?: ShellyComponent;
+  /** Triphase total channel (em:0): hidden by default, since the phases already sum to it. */
+  total?: boolean;
 }
 
 /** The components this plugin can expose, in device order. */
@@ -223,7 +225,7 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
     hasMeters = true;
     const actuator = mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter);
     if (actuator) actuator.meter = component;
-    else mapped.push({ component, kind: 'meter' });
+    else mapped.push({ component, kind: 'meter', ...(device.profile === 'triphase' && component.id === 'em:0' ? { total: true } : {}) });
   }
   // Environment sensors map only on sensor PRODUCTS (H&T, Flood, ...).
   // Relays and meters expose their INTERNAL device temperature under the
@@ -251,9 +253,15 @@ function meteringEnabled(platform: ShellyMatterPlatform, device: ShellyDevice): 
 function visibleComponents(platform: ShellyMatterPlatform, device: ShellyDevice): MappedComponent[] {
   const entry = configForDevice(platform.config, device.id, device.host);
   const metering = entry?.powerMetering !== false;
-  return mappedComponents(device).filter(({ component, kind }) => {
+  return mappedComponents(device).filter(({ component, kind, total }) => {
     if (kind === 'meter' && !metering) return false;
-    return channelConfig(entry, component.index)?.hidden !== true;
+    const hidden = channelConfig(entry, component.index)?.hidden;
+    // The triphase total (em:0) is hidden by default: with the phases
+    // visible, exposing it too would double-count energy in Apple Home's
+    // whole-home total (the phases already sum to it). `hidden: false` on
+    // channel 0 opts it back in.
+    if (total === true) return hidden === false;
+    return hidden !== true;
   });
 }
 
@@ -637,7 +645,12 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   const deviceName = entry?.name ?? cachedDeviceName ?? template.displayName;
   const metering = entry?.powerMetering !== false;
   const visible = [...components.values()]
-    .filter((component) => channelConfig(entry, component.index)?.hidden !== true)
+    .filter((component) => {
+      const hidden = channelConfig(entry, component.index)?.hidden;
+      // Triphase total (em:0): hidden by default, see visibleComponents.
+      if (component.componentId === 'em:0') return hidden === false;
+      return hidden !== true;
+    })
     .sort((a, b) => a.index - b.index);
   if (visible.length === 0) return { shells: [], generation: cachedGeneration };
   const actuatorCount = visible.filter((component) => isSplittableKind(component.kind)).length;

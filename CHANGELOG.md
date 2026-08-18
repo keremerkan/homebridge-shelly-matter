@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Energy meter support** ([#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7)): Shelly EM-family measurement channels (`em1`/`em`/`pm1` components, with their energy counters) are now mapped to Matter. A measurement channel with a same-numbered relay merges onto that relay's endpoint - the shape Apple Home fully supports, live tile wattage included; channels without a relay become their own electrical sensor endpoints (fully rendered by e.g. Home Assistant; Apple Home shows the accessory but no measurement tile). Exposes active/apparent power, voltage, current, frequency, power factor, and imported/returned energy. Three-phase meters (Pro 3EM, 3EM-63 Gen3) expose one endpoint per phase plus the total, labeled accordingly; a meter device's internal temperature is not mapped (it is device temperature, not ambient).
+- **Energy meter support** ([#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7)): Shelly EM-family measurement channels (`em1`/`em`/`pm1` components, with their energy counters) are now mapped to Matter. A measurement channel with a same-numbered relay merges onto that relay's endpoint - the shape Apple Home fully supports, live tile wattage included; channels without a relay become their own electrical sensor endpoints (fully rendered by e.g. Home Assistant; Apple Home shows the accessory but no measurement tile). Exposes active/apparent power, voltage, current, frequency, power factor, and imported/returned energy. Three-phase meters (Pro 3EM, 3EM-63 Gen3) expose one endpoint per phase; the total channel is **hidden by default** because the phases already sum to it and exposing both double-counts energy in Apple Home's Energy tab (`{ "channel": 0, "hidden": false }` opts it in). A meter device's internal temperature is not mapped (it is device temperature, not ambient).
 - **EM-family devices default to the outlet accessory type** (their whole point is metering, and Apple Home shows tile wattage only on outlets). This applies to new devices; existing configurations are untouched.
 
 ### Changed
 
 - The `node-ansi-logger` dependency is replaced by a minimal local logger with the same output format and palette (see NOTICE for attribution). One less dependency to audit; its published package carried an `npm-shrinkwrap.json` that dependency scanners flag (harmless here - it locked nothing - but now moot).
+
+- The settings UI now says that saved changes take effect after a Homebridge (or child bridge) restart - two field reports started as "the change did not work" when only a restart was missing.
 
 ### Fixed
 

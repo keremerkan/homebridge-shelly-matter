@@ -138,7 +138,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
 | Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | 🧪 [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
-| Other energy meters (EM, 3EM, Pro EM, Pro 3EM, PM Mini) | `shellyem`, `shellyem3`, `shellypro3em`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists); Apple shows no measurement tile for relay-less meters | 🟡 [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
+| Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "channel": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
+| Other energy meters (EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
 | Shelly Gas | `shellygas` | — (no Matter device type) | ❌ |
@@ -183,7 +184,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `host` — IP address/hostname, optionally with a port (`ip:port`, e.g. a device behind a Shelly Range Extender); needed for devices mDNS cannot find, or for every device when mDNS discovery is disabled (they are added directly).
 - `name` — the name shown in the Home app.
 - `accessoryType` — `light`, `outlet`, or `switch`. Applies to relay/switch channels only (covers and dimmers have a fixed type). Defaults: plugs are outlets, wired relay devices are lights.
-- `hidden` — set `true` to not expose the device (or a channel) to Matter at all.
+- `hidden` — set `true` to not expose the device (or a channel) to Matter at all. One inverted default: on three-phase meters the total channel (channel 0) is hidden unless you set `"hidden": false` on it — the phases already sum to the total, and exposing both would double-count energy in Apple Home.
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. A channel `name` is only used in the Home app when the device's channels are **split** into separate accessories (the default) — grouped devices always use the device `name` plus the channel number, and their tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `splitChannels` — multi-channel devices only, **on by default**: each channel is its own accessory, so channels can be assigned to different rooms (Apple Home assigns rooms per accessory — even "separate tiles" of one accessory always move rooms together). Set `false` to expose the device as one grouped accessory. Changing this re-creates the device's accessories with fresh identities — reassign rooms after.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
@@ -194,8 +195,10 @@ The platform also accepts `mdnsDiscover` (default `true`). Set it to `false` to 
 
 ## Changing a device's accessory type or split setting
 
-Changing the accessory type of a device or channel — or toggling
-`splitChannels` — deliberately re-creates its Matter accessories with fresh
+Changing the accessory type of a device or channel, hiding channels, or toggling
+`splitChannels` — all composition changes are applied when the bridge restarts,
+so **restart Homebridge (or this child bridge) after saving**. Type and split
+changes deliberately re-create its Matter accessories with fresh
 identities (Apple Home mishandles devices that reappear with the same identity
 but a different structure, leaving them uneditable). The change is applied
 while the bridge restarts, before it comes back online, so paired controllers

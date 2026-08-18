@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
-import { configForDevice, deviceConfigs } from './deviceConfig.js';
+import { channelConfig, configForDevice, deviceConfigs } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import { accessorySignature, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
@@ -414,11 +414,21 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       model: device.model,
       name: device.name,
       channels: mapped.length,
-      kinds: mapped.map(({ kind }) => kind),
+      kinds: mapped.map(({ kind, total }) => (total === true ? 'meter-total' : kind)),
     });
     if (this.isHidden(device.id, device.host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
       return;
+    }
+    // Explain the inverted default so a "missing" channel is not a mystery:
+    // on three-phase meters the total channel stays hidden unless opted in.
+    const hiddenTotal = mapped.find(({ total }) => total === true);
+    if (hiddenTotal && channelConfig(configForDevice(this.config, device.id, device.host), hiddenTotal.component.index)?.hidden === undefined) {
+      this.log.info(
+        `Shelly ${device.id}: the three-phase total channel is hidden by default - the phases already sum to it, `
+        + 'and exposing both would double-count energy in Apple Home. Untick its Hide box in the plugin settings '
+        + '(or set { "channel": 0, "hidden": false }) to expose it.',
+      );
     }
     let generation = this.generationByDevice.get(device.id) ?? 0;
     let accessories = buildShellyAccessories(this, device, generation);

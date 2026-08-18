@@ -35,7 +35,11 @@ export function deviceView({ config, devices } = {}) {
         channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
         channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
         channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
-        channelsHidden: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.hidden === true),
+        channelsHidden: Array.from({ length: channelCount }, (_, i) => {
+          const hidden = channelConfig(entry, i)?.hidden;
+          // The triphase total channel is hidden by default (double-counting).
+          return kindOf(i) === 'meter-total' ? hidden !== false : hidden === true;
+        }),
         name: entry?.name ?? '',
         hidden: entry?.hidden === true,
         split: splitChannelsEnabled(entry),
@@ -86,15 +90,22 @@ export function applyView({ config, devices, selections } = {}) {
     if (sel?.split === false) entry.splitChannels = false;
     // Cover/dimmer channels have no type dropdown, so their selections carry
     // no type; record a channel only when something is actually set.
+    const kinds = Array.isArray(device.kinds) ? device.kinds : [];
     const channels = (Array.isArray(sel?.channels) ? sel.channels : [])
       .map(({ channel, name, type, hidden }) => {
         const channelEntry = { channel };
         if (name) channelEntry.name = name;
         if (type) channelEntry.accessoryType = type;
-        if (hidden === true) channelEntry.hidden = true;
+        // The triphase total channel is hidden by DEFAULT, so only the
+        // opt-in (unchecking hide) is a deviation worth recording.
+        if (kinds[channel] === 'meter-total') {
+          if (hidden === false) channelEntry.hidden = false;
+        } else if (hidden === true) {
+          channelEntry.hidden = true;
+        }
         return channelEntry;
       })
-      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden === true || channelEntry.name !== undefined);
+      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden !== undefined || channelEntry.name !== undefined);
     if (channels.length > 0) entry.channels = channels;
     rebuilt.push(entry);
   }

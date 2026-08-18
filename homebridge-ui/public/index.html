@@ -32,7 +32,9 @@
     let view = { types: [], untested: [], rows: new Map() };
 
     const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-    const typeLabel = (type) => type.charAt(0).toUpperCase() + type.slice(1);
+    const typeLabel = (type) => (type === 'meter-total'
+      ? 'Meter (total)'
+      : type.charAt(0).toUpperCase() + type.slice(1));
 
     async function loadView() {
       const { types, untested, rows } = await homebridge.request('/device-view', { config, devices });
@@ -77,8 +79,9 @@
     function typeCellHtml(row, channel) {
       const kind = channel === undefined ? row.kind : row.channelKinds[channel];
       if (kind !== 'switch') {
-        const badge = view.untested.includes(kind) ? ' <span class="badge badge-warning">untested</span>' : '';
-        return `${typeLabel(kind)}${badge}`;
+        const badge = view.untested.includes(kind === 'meter-total' ? 'meter' : kind) ? ' <span class="badge badge-warning">untested</span>' : '';
+        const title = kind === 'meter-total' ? ' title="The phases already sum to this total, so it is hidden by default - exposing both would double-count energy in Apple Home. Untick Hide to expose it."' : '';
+        return `<span${title}>${typeLabel(kind)}</span>${badge}`;
       }
       const current = channel === undefined ? row.type : row.channelTypes[channel];
       const key = channel === undefined ? row.id : `${row.id}:${channel}`;
@@ -140,7 +143,7 @@
     async function showDevices(source) {
       if (devices.length) {
         await loadView();
-        status.textContent = `${devices.length} device(s) ${source}. Changes are applied to the config immediately - press Save when done.`;
+        status.textContent = `${devices.length} device(s) ${source}. Press Save when done - saved changes take effect after Homebridge (or this child bridge) restarts.`;
         render();
       } else {
         status.textContent = source === 'known by the plugin'
