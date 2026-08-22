@@ -25,3 +25,6 @@ coverage/
 .vscode/
 .idea/
 *.swp
+
+# Local device fixtures (upstream mocks + user payloads)
+fixtures/

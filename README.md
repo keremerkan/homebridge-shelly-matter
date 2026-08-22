@@ -87,6 +87,7 @@ one confirmation moves it to tested.
   on/off and brightness.
 - **Other Gen 1 models** (1PM, 2.5 in relay mode, Gen 1 plugs, Gen 1 Dimmer): same protocol
   paths as the tested Gen 1 devices, but no hardware confirmation yet.
+
 ### Gen 1 devices and CoIoT
 
 Gen 1 devices report state changes (wall switch, Shelly app) over **CoIoT**, a

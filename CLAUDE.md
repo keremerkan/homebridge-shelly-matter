@@ -175,6 +175,14 @@ needed anymore. engines enforces >=2.3.0.
 
 ## Testing
 
+- **Fixtures** (`fixtures/`, gitignored, never in the npm tarball): real-device
+  payloads in the cache-file shape; a `host` ending in `.json` makes the
+  vendored `shellyFetch` read the file instead of the network, so the whole
+  plugin (or a full Homebridge rig) runs on fake devices. `fixtures/smoke.mjs`
+  maps every fixture, prints parts/clusters and checks the cache round trip;
+  `fixtures/fetch.sh` re-downloads the upstream mocks (see `fixtures/README.md`;
+  the EM Gen4 fixture is hand-assembled from issue #7 and cannot be re-fetched).
+  Keep new device payloads there, NOT in the session scratchpad (it gets wiped).
 - Smoke pattern: stub `api` object (registerPlatform capture, `api.matter` stub
   with uuid/deviceTypes-proxy/register/unregister/update/getAccessoryState
   backed by a Set of registered UUIDs), real platform instance, real LAN
