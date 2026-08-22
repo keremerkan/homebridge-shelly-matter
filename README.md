@@ -70,7 +70,8 @@ one confirmation moves it to tested.
 - **Shelly Gen 1 relays and the Dimmer 2** (Shelly 1, 2.5 in relay mode, Dimmer 2 — confirmed by field
   testing, [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4), [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)): on/off, dimmer brightness,
   and live state updates from the wall switch over CoIoT (see the Gen 1 note below).
-  Gen 1 power metering is not mapped yet.
+  Gen 1 power metering (1PM, 2.5, Plug S, Dimmer 2, EM/3EM meters) is mapped as of 0.8.0 -
+  note that Gen 1 relay/dimmer energy counters reset when the device reboots (device behavior).
 - **Battery sensors: Shelly H&T (SHHT-1) and Shelly Flood (SHWT-1)** — confirmed by field
   testing, [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6): temperature,
   humidity, water leak, and battery level. Battery sensors sleep between reports, so readings
@@ -124,11 +125,11 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Plus Plug S | `shellyplusplugs` | outlet + power/energy | ✅ |
 | Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
 | Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
-| Shelly Dimmer 2 | `shellydimmer2` | dimmable light | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
+| Shelly Dimmer 2 | `shellydimmer2` | dimmable light + power/energy | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) (metering 🧪) |
 | Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly 2.5 (relay mode) | `shellyswitch25` | 2× light / outlet / switch | ✅ [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8) |
-| Other Gen 1 relays/plugs (1L, 1PM, 2, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyplug` … | light / outlet / switch (Gen 1 metering not mapped) | 🟡 |
+| Other Gen 1 relays/plugs (1L, 1PM, 2, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyplug` … | light / outlet / switch + power/energy where the device meters | 🟡 |
 | Gen 2+ relays (Plus 1PM, Plus 2PM switch, Pro 1/1PM/2/3, Minis, Gen3/Gen4 models, outdoor plugs) | `shellyplus1pm`, `shellyplus2pm`, `shellypro1pm`, `shellypro3`, `shelly1g3`, `shelly1mini`, `shellyplugsg3` … | light / outlet / switch + power/energy where measured | 🟡 |
 | Covers / rollers (2.5 roller, Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyswitch25`, `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
 | Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
@@ -140,7 +141,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
 | Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
 | Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "channel": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
-| Other energy meters (EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists); Apple shows no measurement tile for relay-less meters | 🟡 |
+| Other energy meters (Gen 1 EM / 3EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists - Gen 1 EM/3EM: first clamp on the contactor relay); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
 | Shelly Gas | `shellygas` | — (no Matter device type) | ❌ |

@@ -7,8 +7,8 @@ import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, 
  * they are importable for tests without starting the UI server.
  */
 
-/** Component kinds newly supported but not yet validated on real hardware; the UI badges them. */
-const UNTESTED_KINDS = ['cover', 'dimmer', 'temperature', 'humidity', 'flood', 'meter'];
+/** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
+const UNTESTED_KINDS = ['cover'];
 
 /** Read-only sensor kinds: no accessory type choice, no splitting, one physical unit. */
 const SENSOR_KINDS = ['temperature', 'humidity', 'flood'];

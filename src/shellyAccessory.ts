@@ -95,7 +95,8 @@ const energyFragment = (direction: 'Imported' | 'Exported') => (v: ShellyDataTyp
 const PROPERTY_MAP: {
   property: string;
   cluster: string;
-  convert: (value: ShellyDataType) => ClusterState | undefined;
+  /** The source component is passed so a row can pick unit math per component family (Gen 1 meter vs emeter). */
+  convert: (value: ShellyDataType, component?: ShellyComponent) => ClusterState | undefined;
   kinds?: ComponentKind[];
   /** Only forwarded when the device's power metering is enabled. */
   metered?: boolean;
@@ -124,6 +125,13 @@ const PROPERTY_MAP: {
   { property: 'pf', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, -1, 1) ? { powerFactor: Math.round(v * 10000) } : undefined), kinds: ['meter'], metered: true },
   { property: 'total_act_energy', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyImported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
   { property: 'total_act_ret_energy', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyExported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
+  // Gen 1 meters: relay/dimmer/plug `meters` (meter:N) report energy in
+  // WATT-MINUTES, EM/3EM `emeters` (emeter:N) in Wh - both under `total`.
+  // (Gen 1 relay/dimmer totals also reset when the device reboots - device
+  // behavior, not ours.)
+  { property: 'power', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v) ? { activePower: milli(v) } : undefined), kinds: ['meter'], metered: true },
+  { property: 'total', cluster: 'electricalEnergyMeasurement', convert: (v, c) => (isValidNumber(v, 0) ? { cumulativeEnergyImported: { energy: c?.id.startsWith('emeter:') ? milli(v) : Math.round((v * 1000) / 60) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
+  { property: 'total_returned', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyExported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
 ];
 
 /** Per-kind property lookup, so a kind only ever sees its own rows. */
@@ -176,7 +184,7 @@ function meterClustersFor(meter: ShellyComponent, metering: boolean): Record<str
   if (!metering) return clusters;
   for (const entry of PROPERTY_MAPS.meter.values()) {
     if (!meter.hasProperty(entry.property)) continue;
-    const fragment = entry.convert(meter.getValue(entry.property));
+    const fragment = entry.convert(meter.getValue(entry.property), meter);
     if (fragment === undefined) continue;
     Object.assign((clusters[entry.cluster] ??= {}), fragment);
   }
@@ -304,7 +312,7 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
   if (kind === 'dimmer') clusters.levelControl = { currentLevel: 254 };
   for (const entry of PROPERTY_MAPS[kind].values()) {
     if ((entry.metered && !metering) || !component.hasProperty(entry.property)) continue;
-    const fragment = entry.convert(component.getValue(entry.property));
+    const fragment = entry.convert(component.getValue(entry.property), component);
     if (fragment === undefined) continue;
     Object.assign((clusters[entry.cluster] ??= {}), fragment);
   }
@@ -768,7 +776,7 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
         // updates cost nothing; stamp only after a successful conversion.
         const throttleKey = entry.throttled ? `${source.id}:${property}` : undefined;
         if (throttleKey !== undefined && Date.now() - (lastEnergyPush.get(throttleKey) ?? 0) < ENERGY_PUSH_MIN_INTERVAL_MS) return;
-        const fragment = entry.convert(value);
+        const fragment = entry.convert(value, source);
         if (fragment === undefined) return;
         if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
         void platform.matter.updateAccessoryState(accessory.UUID, entry.cluster, fragment, partId);

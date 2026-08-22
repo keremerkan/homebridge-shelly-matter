@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-21
+
+### Added
+
+- **Gen 1 power metering** ([#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): the meters of Gen 1 relays, plugs and dimmers (1PM, 2.5, Plug S, Dimmer 2, ...) and the `emeters` of the Gen 1 EM/3EM now feed the same electrical clusters as Gen 2+ devices - live power (plus voltage, current and power factor where the device measures them) and cumulative energy. Gen 1 relay/dimmer meters report energy in watt-minutes; it is converted. Note that those counters reset when the device reboots (device behavior).
+
+### Fixed
+
+- The settings page's "untested" badge was per component kind, so it marked every dimmer and sensor untested although the Dimmer 2, H&T and Flood are confirmed. It now only marks covers, the one kind with no hardware confirmation yet; per-model status lives in the README device table.
+
 ## [0.7.0] - 2026-08-18
 
 ### Added
