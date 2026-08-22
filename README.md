@@ -85,8 +85,8 @@ one confirmation moves it to tested.
   target position, position and movement state, power metering where the device measures it.
 - **Gen 2+ dimmers** (Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer):
   on/off and brightness.
-- **Other Gen 1 models** (1PM, 2.5 in relay mode, Gen 1 plugs, Gen 1 Dimmer): same protocol
-  paths as the tested Gen 1 devices, but no hardware confirmation yet.
+- **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
+  tested Gen 1 devices, but no hardware confirmation yet.
 
 ### Gen 1 devices and CoIoT
 
