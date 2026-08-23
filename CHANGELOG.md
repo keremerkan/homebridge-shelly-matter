@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Gen 1 relays without metering (Shelly 1) no longer get a dummy 0 W power cluster - only meters that report an energy counter are mapped.
 - The settings page's "untested" badge was per component kind, so it marked every dimmer and sensor untested although the Dimmer 2, H&T and Flood are confirmed. It now only marks covers, the one kind with no hardware confirmation yet; per-model status lives in the README device table.
 
 ## [0.7.0] - 2026-08-18

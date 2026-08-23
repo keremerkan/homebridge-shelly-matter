@@ -238,6 +238,9 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
   let hasMeters = false;
   for (const [, component] of device) {
     if (component.name !== 'PowerMeter') continue;
+    // Gen 1 relays without metering still report a dummy meter (Shelly 1:
+    // {power: 0, is_valid: true}); real Gen 1 meters carry a 'total' counter.
+    if (component.id.startsWith('meter:') && !component.hasProperty('total')) continue;
     hasMeters = true;
     const actuator = mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter);
     if (actuator) actuator.meter = component;
