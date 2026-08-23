@@ -126,7 +126,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Plus Plug S | `shellyplusplugs` | outlet + power/energy | ✅ |
 | Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
 | Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
-| Shelly Dimmer 2 | `shellydimmer2` | dimmable light + power/energy | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) (metering 🧪) |
+| Shelly Dimmer 2 | `shellydimmer2` | dimmable light + power/energy | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
 | Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly 2.5 (relay mode) | `shellyswitch25` | 2× light / outlet / switch | ✅ [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8) |
