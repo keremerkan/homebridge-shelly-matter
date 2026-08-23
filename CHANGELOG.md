@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Gen 1 power metering** ([#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4)): the meters of Gen 1 relays, plugs and dimmers (1PM, 2.5, Plug S, Dimmer 2, ...) and the `emeters` of the Gen 1 EM/3EM now feed the same electrical clusters as Gen 2+ devices - live power (plus voltage, current and power factor where the device measures them) and cumulative energy. Gen 1 relay/dimmer meters report energy in watt-minutes; it is converted. Note that those counters reset when the device reboots (device behavior).
+  Upgrade note: the endpoints of Gen 1 metered devices gain these clusters on their first connect after the update, and Apple Home moves changed accessories back into the bridge's room once. Move them back; later restarts keep the rooms.
 
 ### Fixed
 
