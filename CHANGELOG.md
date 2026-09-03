@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-03
+
+### Fixed
+
+- Structural changes to an already registered accessory (an update mapping new measurements, as 0.8.0 did for Gen 1 meters) are no longer applied by re-registering the accessory in place - Apple Home can corrupt the accessory's record when a known accessory reappears with a different structure ("unable to change settings", [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8)). The plugin now detects the change, keeps the current shape for the running session (with a log line saying so), and re-creates the accessory with a fresh identity at the next restart of Homebridge or the child bridge, before controllers can see the bridge. The accessory lands in the bridge's default room that one time; renaming and room assignment keep working normally. Renames and firmware updates still apply immediately, in place.
+- Devices not seen on the network during a session (sleeping battery sensors, unplugged devices) no longer lose their row in the settings UI's device list when the device list is saved.
+
 ## [0.8.0] - 2026-08-23
 
 ### Added

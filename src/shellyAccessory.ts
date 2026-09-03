@@ -726,6 +726,20 @@ export function accessorySignature(accessory: MatterAccessory): string {
 }
 
 /**
+ * The structural subset of a signature: device types and cluster sets, with
+ * the name/firmware metadata dropped. A metadata-only change (rename, Shelly
+ * OTA) re-registers in place; a structural change on an identity a controller
+ * already knows must NOT - Apple Home breaks the accessory's record when a
+ * known uniqueId reappears with a different structure ("unable to change
+ * settings", #8) - so the platform defers those to a pre-online rotation at
+ * the next startup.
+ */
+export function structuralSignature(signature: string): string {
+  const { clusters, parts } = JSON.parse(signature) as { clusters: string[]; parts: { id: string; type: string; clusters: string[] }[] };
+  return JSON.stringify({ clusters, parts: parts.map(({ id, type, clusters: partClusters }) => ({ id, type, clusters: partClusters })) });
+}
+
+/**
  * The accessory's own parts resolved to live components. Driven by the
  * registered shape (context), not by re-deriving from config, so a split
  * accessory only ever touches its own channel.

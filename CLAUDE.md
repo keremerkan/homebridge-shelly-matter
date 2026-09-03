@@ -88,8 +88,17 @@ device table. devices.json records per-channel `kinds` for the UI.
   the serializable `context` ({deviceId, partTypes, partComponents}).
   Handlers bind lazily (component resolved at command time).
   On device connect, `accessorySignature` decides: match → `pushCurrentState`
-  only; differ → unregister+register. Combined with the Homebridge patch this
-  keeps the bridge parts list complete across restarts.
+  only; metadata-only difference (name/firmware - rename or Shelly OTA) →
+  unregister+register in place; STRUCTURAL difference (`structuralSignature`:
+  device types + cluster sets, names/firmware stripped) → NEVER in place
+  (Apple corrupts the record of a known uniqueId reappearing with a different
+  structure - #8's "unable to change settings") and never live-rotated
+  (bridge desync): the platform keeps serving the registered shape, persists
+  `pendingRotation` + bumped `generation` in devices.json, and the NEXT
+  startup drops the old identity pre-online so the device returns with a
+  fresh identity on connect (`fixtures/deferred-rotation.mjs` covers the
+  whole lifecycle). This keeps the bridge parts list complete across
+  restarts.
 - **1s update-attach delay** (`ATTACH_SETTLE_MS`): live state transactions
   racing a registration's parts-list notify trip matter.js locks
   ("Cannot lock ... synchronously") on commissioned bridges.
@@ -118,8 +127,11 @@ device table. devices.json records per-channel `kinds` for the UI.
   across structural change. Changing the seed scheme rotates EVERY accessory
   once (rooms reset) — avoid unless necessary.
 - **`devices.json`** (`<storage>/shelly-matter/`): platform persists device
-  sightings (id/host/gen/model/name/channels) for the settings UI; written
-  debounced + atomically (tmp+rename). The UI must NOT run its own short mDNS
+  sightings (id/host/gen/model/name/channels) for the settings UI, plus the
+  per-device identity `generation` and the `pendingRotation` flag; written
+  debounced + atomically (tmp+rename). The in-memory list is SEEDED from disk
+  at startup - without that, a save would drop the rows of devices not
+  re-sighted this session (sleeping battery sensors). The UI must NOT run its own short mDNS
   scans as primary discovery (scanner's first query races its socket bind and
   re-queries only at 60s; responders rate-limit) — `/devices` from this file is
   primary, `/scan` (with 1s re-query loop) is fallback only.

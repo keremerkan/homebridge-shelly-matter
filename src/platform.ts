@@ -6,7 +6,7 @@ import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js'
 
 import { channelConfig, configForDevice, deviceConfigs } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
-import { accessorySignature, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
+import { accessorySignature, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState, structuralSignature } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
@@ -24,6 +24,10 @@ interface KnownDevice {
   channels: number | null;
   /** Component kind per channel ('switch' | 'cover' | 'dimmer'), once the device has connected. */
   kinds: string[] | null;
+  /** Current identity rotation generation - persisted so a rotation never lands on a used identity even when the accessory cache is gone. */
+  generation?: number;
+  /** A structural change was detected on a live, registered identity; the rotation applying it runs pre-online at the next startup. */
+  pendingRotation?: boolean;
 }
 
 const HOST_RETRY_MS = 60_000;
@@ -165,10 +169,14 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // restart (#8).
     const hostById = new Map<string, string>();
     try {
-      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as { id?: string; host?: string; gen?: number }[];
+      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as KnownDevice[];
       if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
       for (const device of known) {
-        if (typeof device.id === 'string' && typeof device.host === 'string') hostById.set(device.id, device.host);
+        if (typeof device.id !== 'string') continue;
+        // Seed the in-memory list so a save never drops devices that have
+        // not been re-sighted this session (e.g. sleeping battery sensors).
+        this.knownDevices.set(device.id, device);
+        if (typeof device.host === 'string') hostById.set(device.id, device.host);
       }
     } catch {
       // No devices.json yet - the discovery/add triggers below cover it.
@@ -204,6 +212,22 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
       const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host);
       if (!reconciled) continue;
+      if (this.knownDevices.get(deviceId)?.pendingRotation === true) {
+        // A structural change (e.g. an update mapping new measurements) was
+        // detected live last session and deferred to here: drop the old
+        // identity entirely while the node is still offline - the device
+        // registers with a fresh identity when it connects. Never re-register
+        // a known uniqueId with a different structure (Apple breaks the
+        // record, #8) and never rotate live (desyncs the bridge).
+        this.generationByDevice.set(deviceId, Math.max(this.knownDevices.get(deviceId)?.generation ?? 0, reconciled.generation + 1));
+        for (const cached of cachedList) {
+          this.enqueue(`Failed to unregister rotated Shelly ${deviceId}`, async () => {
+            this.log.info(`Shelly ${deviceId} structure changed - removing ${cached.displayName} before the bridge goes online; it returns with a fresh identity when the device connects.`);
+            await this.unregisterAccessory(cached);
+          });
+        }
+        continue;
+      }
       const expected = reconciled.shells;
       this.generationByDevice.set(deviceId, reconciled.generation);
       const expectedUuids = new Set(expected.map((shell) => shell.UUID));
@@ -223,6 +247,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
             this.uuidsByDevice.set(deviceId, uuids);
           }
         });
+      }
+    }
+
+    // Flagged devices whose cache shells are already gone (a restart between
+    // the pre-online removal and the device's first connect) still need their
+    // persisted generation so the fresh identity never reuses an old one.
+    for (const [deviceId, known] of this.knownDevices) {
+      if (known.pendingRotation === true && !this.generationByDevice.has(deviceId)) {
+        this.generationByDevice.set(deviceId, known.generation ?? 0);
       }
     }
 
@@ -357,6 +390,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: entry.name ?? existing?.name ?? null,
       channels: entry.channels ?? existing?.channels ?? null,
       kinds: entry.kinds ?? existing?.kinds ?? null,
+      generation: entry.generation ?? existing?.generation,
+      pendingRotation: entry.pendingRotation ?? existing?.pendingRotation,
     };
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
@@ -459,15 +494,38 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     }
     this.uuidsByDevice.set(device.id, [...newUuids]);
 
+    let deferred = false;
     for (const accessory of accessories) {
       const signature = accessorySignature(accessory);
       const registered = this.registeredSignatures.get(accessory.UUID);
+      let attach = accessory;
       if (registered === signature) {
         // Already registered from the cache with the same structure - just feed it.
         this.log.info(`Shelly ${device.id} (${accessory.displayName}) matches its cached registration - pushing current state.`);
         pushCurrentState(this, device, accessory);
+      } else if (registered !== undefined && structuralSignature(registered) !== structuralSignature(signature)) {
+        // Structural change on an identity a controller already knows (e.g.
+        // an update maps new measurements): re-registering the same uniqueId
+        // in place breaks the accessory's record in Apple Home ("unable to
+        // change settings", #8), and rotating live desyncs the whole bridge -
+        // keep serving the registered shape and defer the rotation to the
+        // next startup, where it runs before the node goes online.
+        const shell = this.matterAccessories.get(accessory.UUID);
+        if (!shell) continue;
+        if (!deferred) {
+          deferred = true;
+          this.rememberDevice({ id: device.id, host: device.host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation: generation + 1, pendingRotation: true });
+          this.log.warn(
+            `Shelly ${device.id} (${accessory.displayName}) changed structure since it was registered (measurements or components added/removed). `
+            + 'To keep Apple Home stable, the new structure is applied at the next restart of Homebridge (or this child bridge) - until then the accessory keeps its current shape.',
+          );
+        }
+        pushCurrentState(this, device, shell);
+        attach = shell;
       } else {
         if (registered !== undefined) {
+          // Metadata-only difference (rename, firmware OTA) - re-register in
+          // place so controllers pick up the new BasicInformation.
           this.log.info(`Shelly ${device.id} (${accessory.displayName}) changed since its cached registration - re-registering.`);
           const cached = this.matterAccessories.get(accessory.UUID);
           if (cached) await this.unregisterAccessory(cached);
@@ -475,7 +533,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
         if (!(await this.registerVerified(accessory, accessory.displayName))) continue;
       }
-      this.pendingUpdateAttach.push({ device, accessory });
+      this.pendingUpdateAttach.push({ device, accessory: attach });
+    }
+    // Persist the identity generation (so rotations survive a lost accessory
+    // cache) and clear a completed rotation's flag - but never the flag just
+    // set by the deferred branch above.
+    if (!deferred) {
+      this.rememberDevice({ id: device.id, host: device.host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation, pendingRotation: false });
     }
     this.scheduleUpdateAttach();
 
