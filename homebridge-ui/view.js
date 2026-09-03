@@ -107,6 +107,9 @@ export function applyView({ config, devices, selections } = {}) {
       })
       .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden !== undefined || channelEntry.name !== undefined);
     if (channels.length > 0) entry.channels = channels;
+    // A device the plugin has not connected to yet (no kinds recorded) shows
+    // no channel rows, so its hand-written channel settings must survive.
+    else if (!Array.isArray(device.kinds) && Array.isArray(prior?.channels) && prior.channels.length > 0) entry.channels = prior.channels;
     rebuilt.push(entry);
   }
   return rebuilt;

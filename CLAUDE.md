@@ -89,16 +89,24 @@ device table. devices.json records per-channel `kinds` for the UI.
   Handlers bind lazily (component resolved at command time).
   On device connect, `accessorySignature` decides: match → `pushCurrentState`
   only; metadata-only difference (name/firmware - rename or Shelly OTA) →
-  unregister+register in place; STRUCTURAL difference (`structuralSignature`:
+  unregister+register in place; STRUCTURAL difference (`accessoryStructure`:
   device types + cluster sets, names/firmware stripped) → NEVER in place
   (Apple corrupts the record of a known uniqueId reappearing with a different
   structure - #8's "unable to change settings") and never live-rotated
-  (bridge desync): the platform keeps serving the registered shape, persists
-  `pendingRotation` + bumped `generation` in devices.json, and the NEXT
-  startup drops the old identity pre-online so the device returns with a
-  fresh identity on connect (`fixtures/deferred-rotation.mjs` covers the
-  whole lifecycle). This keeps the bridge parts list complete across
-  restarts.
+  (bridge desync): the platform keeps serving the registered shape (pushes
+  and update forwarding are filtered to the clusters the registered part
+  declares), persists `pendingRotation` + bumped `generation` in
+  devices.json, and the NEXT startup drops the old identity pre-online; the
+  device comes back as a NEW accessory (fresh identity) when it connects
+  (`fixtures/deferred-rotation.mjs` covers the whole lifecycle). This keeps
+  the bridge parts list complete across restarts.
+- **ONE composition engine** (`composeAccessories` in shellyAccessory.ts):
+  live builds and cache rebuilds both feed it an abstract component list
+  (`Composable`), so visibility rules, the canonical part order (actuators
+  first, then measurement parts, each by index), names, tokens and identity
+  seeds cannot drift between the two paths - a drift means a rotation on
+  every restart. `fixtures/identity-baseline.mjs` + `fixtures/identity-before.txt`
+  are the identity regression: run it after ANY change here and diff.
 - **1s update-attach delay** (`ATTACH_SETTLE_MS`): live state transactions
   racing a registration's parts-list notify trip matter.js locks
   ("Cannot lock ... synchronously") on commissioned bridges.
@@ -119,6 +127,11 @@ device table. devices.json records per-channel `kinds` for the UI.
   endpoint id, and Apple stalls when recently-deleted endpoints reappear
   (validated 2026-07-25: a split->revert resurrecting the original grouped
   identity left a No Response ghost + missing accessory until hub reboot).
+  The generation is ALSO persisted in devices.json as a floor: a device that
+  registered before but has no cache shells now (cache wiped, hidden then
+  un-hidden) registers at floor+1, and metering-off (which strips clusters
+  from parts that keep their seed) rotates pre-online like any composition
+  change.
   ANY composition change (retype, hide)
   rotates the WHOLE accessory (parent included) and the platform unregisters
   the previous identity first. Rationale: Apple Home breaks on same-uniqueId
@@ -129,9 +142,12 @@ device table. devices.json records per-channel `kinds` for the UI.
 - **`devices.json`** (`<storage>/shelly-matter/`): platform persists device
   sightings (id/host/gen/model/name/channels) for the settings UI, plus the
   per-device identity `generation` and the `pendingRotation` flag; written
-  debounced + atomically (tmp+rename). The in-memory list is SEEDED from disk
-  at startup - without that, a save would drop the rows of devices not
-  re-sighted this session (sleeping battery sensors). The UI must NOT run its own short mDNS
+  debounced + atomically (tmp+rename), flushed synchronously on shutdown. The
+  in-memory list is SEEDED from disk at startup - without that, a save would
+  drop the rows of devices not re-sighted this session (sleeping battery
+  sensors). `host` is the CONFIG host for devices added from a host-only
+  entry (`configuredHostById`): a hostname entry must keep resolving after
+  mDNS reports the IP, in the pre-online rebuild and live alike. The UI must NOT run its own short mDNS
   scans as primary discovery (scanner's first query races its socket bind and
   re-queries only at 60s; responders rate-limit) — `/devices` from this file is
   primary, `/scan` (with 1s re-query loop) is fallback only.
@@ -194,7 +210,10 @@ needed anymore. engines enforces >=2.3.0.
   maps every fixture, prints parts/clusters and checks the cache round trip;
   `fixtures/fetch.sh` re-downloads the upstream mocks (see `fixtures/README.md`;
   the EM Gen4 fixture is hand-assembled from issue #7 and cannot be re-fetched).
-  Keep new device payloads there, NOT in the session scratchpad (it gets wiped).
+  `fixtures/deferred-rotation.mjs` runs a real platform instance against a
+  stub api through 7 simulated restarts (upgrade detect → rotation → stable →
+  OTA in place → metering off → cache loss). Keep new device payloads there,
+  NOT in the session scratchpad (it gets wiped).
 - Smoke pattern: stub `api` object (registerPlatform capture, `api.matter` stub
   with uuid/deviceTypes-proxy/register/unregister/update/getAccessoryState
   backed by a Set of registered UUIDs), real platform instance, real LAN

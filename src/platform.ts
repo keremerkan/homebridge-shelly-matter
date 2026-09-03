@@ -1,12 +1,12 @@
-import { promises as fs, readFileSync } from 'node:fs';
+import { promises as fs, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
 import { channelConfig, configForDevice, deviceConfigs } from './deviceConfig.js';
-import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
-import { accessorySignature, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState, structuralSignature } from './shellyAccessory.js';
+import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN } from './settings.js';
+import { accessorySignature, accessoryStructure, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
@@ -47,7 +47,16 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly knownDevices = new Map<string, KnownDevice>();
   private saveQueue: Promise<void> = Promise.resolve();
   private saveTimer?: NodeJS.Timeout;
-  private readonly registeredSignatures = new Map<string, string>();
+  /** Full + structural signatures of every registered accessory (see accessorySignature / accessoryStructure). */
+  private readonly registeredSignatures = new Map<string, { signature: string; structure: string }>();
+  /** Hosts with a ShellyDevice.create in flight - the config loop and mDNS discovery race for the same device at startup. */
+  private readonly creatingHosts = new Set<string>();
+  /**
+   * Devices added from a HOST-ONLY config entry, keyed by device id: config
+   * lookups must keep using the entry's host string (a hostname, say) even
+   * after mDNS reports the device's IP, or the entry stops resolving.
+   */
+  private readonly configuredHostById = new Map<string, string>();
   /** The accessory UUIDs currently registered for a device - one entry grouped, several when splitChannels is on. */
   private readonly uuidsByDevice = new Map<string, string[]>();
   /** The current rotation generation per device (see ShellyAccessoryContext.generation). */
@@ -137,6 +146,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.registeredSignatures.delete(accessory.UUID);
   }
 
+  /** The host string config entries are matched against for a device (its host-only entry's host when added from one). */
+  configHost(device: { id: string; host: string }): string {
+    return this.configuredHostById.get(device.id) ?? device.host;
+  }
+
   /** A component of a connected device, or undefined while it is offline. */
   shellyComponent(deviceId: string, componentId: string): ShellyComponent | undefined {
     return this.shelly?.getDevice(deviceId)?.getComponent(componentId);
@@ -169,14 +183,18 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // restart (#8).
     const hostById = new Map<string, string>();
     try {
-      const known = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8')) as KnownDevice[];
+      const parsed: unknown = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8'));
+      const known = (Array.isArray(parsed) ? parsed : []).filter((row): row is KnownDevice => row !== null && typeof row === 'object' && typeof (row as KnownDevice).id === 'string');
       if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
       for (const device of known) {
-        if (typeof device.id !== 'string') continue;
         // Seed the in-memory list so a save never drops devices that have
         // not been re-sighted this session (e.g. sleeping battery sensors).
         this.knownDevices.set(device.id, device);
         if (typeof device.host === 'string') hostById.set(device.id, device.host);
+        // The persisted generation is the floor for every identity built
+        // this session - a rotation must never land on a used identity,
+        // even when the accessory cache that recorded it is gone.
+        if (typeof device.generation === 'number') this.generationByDevice.set(device.id, device.generation);
       }
     } catch {
       // No devices.json yet - the discovery/add triggers below cover it.
@@ -210,16 +228,16 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         continue;
       }
-      const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host);
-      if (!reconciled) continue;
-      if (this.knownDevices.get(deviceId)?.pendingRotation === true) {
+      const known = this.knownDevices.get(deviceId);
+      if (known?.pendingRotation === true) {
         // A structural change (e.g. an update mapping new measurements) was
         // detected live last session and deferred to here: drop the old
         // identity entirely while the node is still offline - the device
         // registers with a fresh identity when it connects. Never re-register
         // a known uniqueId with a different structure (Apple breaks the
         // record, #8) and never rotate live (desyncs the bridge).
-        this.generationByDevice.set(deviceId, Math.max(this.knownDevices.get(deviceId)?.generation ?? 0, reconciled.generation + 1));
+        const cachedGeneration = expectedShellsFromCache(this, deviceId, cachedList, host)?.generation ?? 0;
+        this.generationByDevice.set(deviceId, Math.max(known.generation ?? 0, cachedGeneration + 1));
         for (const cached of cachedList) {
           this.enqueue(`Failed to unregister rotated Shelly ${deviceId}`, async () => {
             this.log.info(`Shelly ${deviceId} structure changed - removing ${cached.displayName} before the bridge goes online; it returns with a fresh identity when the device connects.`);
@@ -228,6 +246,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         continue;
       }
+      const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host, known?.generation ?? 0);
+      if (!reconciled) continue;
       const expected = reconciled.shells;
       this.generationByDevice.set(deviceId, reconciled.generation);
       const expectedUuids = new Set(expected.map((shell) => shell.UUID));
@@ -250,13 +270,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
     }
 
-    // Flagged devices whose cache shells are already gone (a restart between
-    // the pre-online removal and the device's first connect) still need their
-    // persisted generation so the fresh identity never reuses an old one.
+    // A device that registered before but has no cache shells now (cache
+    // wiped, or hidden and about to be un-hidden): controllers may still know
+    // its recorded identity, so its next registration takes a FRESH one.
     for (const [deviceId, known] of this.knownDevices) {
-      if (known.pendingRotation === true && !this.generationByDevice.has(deviceId)) {
-        this.generationByDevice.set(deviceId, known.generation ?? 0);
-      }
+      if (typeof known.generation !== 'number' || cachedByDevice.has(deviceId) || known.pendingRotation === true) continue;
+      this.generationByDevice.set(deviceId, known.generation + 1);
     }
 
     this.shelly.on('discovered', (discovered: DiscoveredDevice) => {
@@ -267,7 +286,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // The scanner matches any mDNS name starting with 'shelly' - real device
       // ids end in a MAC fragment of at least 6 hex chars. Filters name-alikes
       // (e.g. a HAP bridge someone named "Shelly...").
-      if (!/^shelly[a-z0-9]*-[0-9a-f]{6,}$/i.test(discovered.id)) {
+      if (!SHELLY_ID_PATTERN.test(discovered.id)) {
         this.log.debug(`Ignoring mDNS entry ${discovered.id} at ${discovered.host} - not a Shelly device id.`);
         return;
       }
@@ -281,7 +300,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
       const existing = this.shelly?.getDevice(discovered.id);
       if (existing) {
-        if (existing.host !== discovered.host) {
+        // A device added from a host-only entry stays on the configured host
+        // (a hostname keeps resolving to the device's current IP).
+        if (existing.host !== discovered.host && !this.configuredHostById.has(existing.id)) {
           this.log.warn(`Shelly ${discovered.id} moved from ${existing.host} to ${discovered.host} - reconnecting.`);
           existing.host = discovered.host;
           if (existing.gen === 1) {
@@ -306,7 +327,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     });
 
     for (const entry of deviceConfigs(this.config)) {
-      if (entry.host && entry.hidden !== true) void this.addHost(entry.host);
+      if (entry.host && entry.hidden !== true) void this.addHost(entry.host, entry.device === undefined);
     }
 
     if (this.config.mdnsDiscover !== false) {
@@ -316,26 +337,47 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
   private stop(): void {
     this.stopped = true;
-    if (this.saveTimer) clearTimeout(this.saveTimer);
+    if (this.saveTimer) {
+      // A debounced save must not be lost to the shutdown (e.g. the
+      // pendingRotation flag written seconds before a restart).
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+      try {
+        writeFileSync(path.join(this.dataPath, DEVICES_FILE), JSON.stringify([...this.knownDevices.values()], null, 2));
+      } catch (error) {
+        this.log.error(`Failed to save devices.json on shutdown: ${getErrorMessage(error)}`);
+      }
+    }
     if (this.attachTimer) clearTimeout(this.attachTimer);
     for (const timer of this.hostRetryTimers.values()) clearTimeout(timer);
     this.hostRetryTimers.clear();
     this.shelly?.destroy();
   }
 
-  private async addHost(host: string): Promise<void> {
-    if (!this.shelly || this.shelly.hasDeviceHost(host)) return;
-    const device = await ShellyDevice.create(this.shelly, this.shellyLog, host).catch((error: unknown) => {
-      this.log.error(`Error creating Shelly device at ${host}: ${getErrorMessage(error)}`);
-      return undefined;
-    });
+  /** Creates and adds the device at a host; `hostOnlyEntry` marks a host-only config entry's host (see configuredHostById). */
+  private async addHost(host: string, hostOnlyEntry = false): Promise<void> {
+    if (!this.shelly || this.shelly.hasDeviceHost(host) || this.creatingHosts.has(host)) return;
+    this.creatingHosts.add(host);
+    const device = await ShellyDevice.create(this.shelly, this.shellyLog, host)
+      .catch((error: unknown) => {
+        this.log.error(`Error creating Shelly device at ${host}: ${getErrorMessage(error)}`);
+        return undefined;
+      })
+      .finally(() => this.creatingHosts.delete(host));
     if (!device) {
       this.log.warn(`Could not reach Shelly at ${host}, retrying in ${HOST_RETRY_MS / 1000}s.`);
       const timer = setTimeout(() => {
         this.hostRetryTimers.delete(host);
-        void this.addHost(host);
+        void this.addHost(host, hostOnlyEntry);
       }, HOST_RETRY_MS);
       this.hostRetryTimers.set(host, timer);
+      return;
+    }
+    if (hostOnlyEntry) this.configuredHostById.set(device.id, host);
+    // The same device reached through two host strings (config hostname vs
+    // mDNS IP) - keep the first; the loser's transport must not linger.
+    if (this.shelly.getDevice(device.id)) {
+      device.destroy();
       return;
     }
     await this.shelly.addDevice(device);
@@ -369,7 +411,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // and re-registering.
       for (let poll = 0; poll < 40 && !this.stopped; poll++) {
         if (await verified()) {
-          this.registeredSignatures.set(accessory.UUID, accessorySignature(accessory));
+          this.registeredSignatures.set(accessory.UUID, { signature: accessorySignature(accessory), structure: accessoryStructure(accessory) });
           this.matterAccessories.set(accessory.UUID, accessory);
           return true;
         }
@@ -390,9 +432,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: entry.name ?? existing?.name ?? null,
       channels: entry.channels ?? existing?.channels ?? null,
       kinds: entry.kinds ?? existing?.kinds ?? null,
-      generation: entry.generation ?? existing?.generation,
-      pendingRotation: entry.pendingRotation ?? existing?.pendingRotation,
     };
+    // Optional fields are only materialized when known - an `undefined` key
+    // would make every comparison below fail and rewrite an identical file.
+    const generation = entry.generation ?? existing?.generation;
+    if (generation !== undefined) merged.generation = generation;
+    else delete merged.generation;
+    const pendingRotation = entry.pendingRotation ?? existing?.pendingRotation;
+    if (pendingRotation !== undefined) merged.pendingRotation = pendingRotation;
+    else delete merged.pendingRotation;
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
@@ -442,23 +490,24 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
     const mapped = mappedComponents(device);
+    const host = this.configHost(device);
     this.rememberDevice({
       id: device.id,
-      host: device.host,
+      host,
       gen: device.gen,
       model: device.model,
       name: device.name,
       channels: mapped.length,
       kinds: mapped.map(({ kind, total }) => (total === true ? 'meter-total' : kind)),
     });
-    if (this.isHidden(device.id, device.host)) {
+    if (this.isHidden(device.id, host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
       return;
     }
     // Explain the inverted default so a "missing" channel is not a mystery:
     // on three-phase meters the total channel stays hidden unless opted in.
     const hiddenTotal = mapped.find(({ total }) => total === true);
-    if (hiddenTotal && channelConfig(configForDevice(this.config, device.id, device.host), hiddenTotal.component.index)?.hidden === undefined) {
+    if (hiddenTotal && channelConfig(configForDevice(this.config, device.id, host), hiddenTotal.component.index)?.hidden === undefined) {
       this.log.info(
         `Shelly ${device.id}: the three-phase total channel is hidden by default - the phases already sum to it, `
         + 'and exposing both would double-count energy in Apple Home. Untick its Hide box in the plugin settings '
@@ -495,15 +544,19 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.uuidsByDevice.set(device.id, [...newUuids]);
 
     let deferred = false;
+    // Whether at least one identity of this device is confirmed live this
+    // session - only then may a pending rotation count as completed.
+    let settled = false;
     for (const accessory of accessories) {
       const signature = accessorySignature(accessory);
       const registered = this.registeredSignatures.get(accessory.UUID);
       let attach = accessory;
-      if (registered === signature) {
+      if (registered?.signature === signature) {
         // Already registered from the cache with the same structure - just feed it.
         this.log.info(`Shelly ${device.id} (${accessory.displayName}) matches its cached registration - pushing current state.`);
         pushCurrentState(this, device, accessory);
-      } else if (registered !== undefined && structuralSignature(registered) !== structuralSignature(signature)) {
+        settled = true;
+      } else if (registered !== undefined && registered.structure !== accessoryStructure(accessory)) {
         // Structural change on an identity a controller already knows (e.g.
         // an update maps new measurements): re-registering the same uniqueId
         // in place breaks the accessory's record in Apple Home ("unable to
@@ -514,7 +567,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         if (!shell) continue;
         if (!deferred) {
           deferred = true;
-          this.rememberDevice({ id: device.id, host: device.host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation: generation + 1, pendingRotation: true });
+          this.rememberDevice({ id: device.id, host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation: generation + 1, pendingRotation: true });
           this.log.warn(
             `Shelly ${device.id} (${accessory.displayName}) changed structure since it was registered (measurements or components added/removed). `
             + 'To keep Apple Home stable, the new structure is applied at the next restart of Homebridge (or this child bridge) - until then the accessory keeps its current shape.',
@@ -532,14 +585,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
         if (!(await this.registerVerified(accessory, accessory.displayName))) continue;
+        settled = true;
       }
       this.pendingUpdateAttach.push({ device, accessory: attach });
     }
     // Persist the identity generation (so rotations survive a lost accessory
-    // cache) and clear a completed rotation's flag - but never the flag just
-    // set by the deferred branch above.
+    // cache); a pending rotation counts as completed only once an identity is
+    // confirmed live - and never right after the deferred branch set it.
     if (!deferred) {
-      this.rememberDevice({ id: device.id, host: device.host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation, pendingRotation: false });
+      this.rememberDevice({ id: device.id, host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation, ...(settled ? { pendingRotation: false } : {}) });
     }
     this.scheduleUpdateAttach();
 

@@ -45,20 +45,20 @@
     function harvestSelections() {
       return devices.map((device) => {
         const sel = { id: device.id };
-        const nameInput = document.querySelector(`input[data-name-entry="${device.id}"]`);
+        const nameInput = document.querySelector(`input[data-name-entry="${CSS.escape(device.id)}"]`);
         if (nameInput?.value.trim()) sel.name = nameInput.value.trim();
-        const select = document.querySelector(`select[data-entry="${device.id}"]`);
+        const select = document.querySelector(`select[data-entry="${CSS.escape(device.id)}"]`);
         if (select) sel.type = select.value;
-        sel.hidden = document.querySelector(`input[data-hide="${device.id}"]`)?.checked === true;
-        const splitBox = document.querySelector(`input[data-split="${device.id}"]`);
+        sel.hidden = document.querySelector(`input[data-hide="${CSS.escape(device.id)}"]`)?.checked === true;
+        const splitBox = document.querySelector(`input[data-split="${CSS.escape(device.id)}"]`);
         if (splitBox) sel.split = splitBox.checked;
         // Every channel row has a hide checkbox; only switch channels have a
         // type dropdown (covers/dimmers are fixed kinds).
         const channelKinds = view.rows.get(device.id)?.channelKinds ?? [];
         sel.channels = channelKinds.map((_, channel) => {
-          const channelSelect = document.querySelector(`select[data-entry="${device.id}:${channel}"]`);
-          const channelName = document.querySelector(`input[data-channel-name="${device.id}:${channel}"]`)?.value.trim();
-          const hidden = document.querySelector(`input[data-hide="${device.id}:${channel}"]`)?.checked === true;
+          const channelSelect = document.querySelector(`select[data-entry="${CSS.escape(`${device.id}:${channel}`)}"]`);
+          const channelName = document.querySelector(`input[data-channel-name="${CSS.escape(`${device.id}:${channel}`)}"]`)?.value.trim();
+          const hidden = document.querySelector(`input[data-hide="${CSS.escape(`${device.id}:${channel}`)}"]`)?.checked === true;
           return { channel, ...(channelName && { name: channelName }), ...(channelSelect && { type: channelSelect.value }), hidden };
         });
         return sel;
@@ -207,6 +207,13 @@
       await homebridge.updatePluginConfig(pluginConfig);
     }
     config = pluginConfig[0];
+    // The schema form below edits the same config (password, debug, ...):
+    // track its changes so the table never pushes a stale snapshot back.
+    homebridge.addEventListener('configChanged', (event) => {
+      if (!Array.isArray(event.data) || !event.data.length) return;
+      pluginConfig = event.data;
+      config = pluginConfig[0];
+    });
     document.getElementById('scan-btn').addEventListener('click', scan);
     homebridge.showSchemaForm();
     await Promise.all([loadKnown(), loadFabrics()]);

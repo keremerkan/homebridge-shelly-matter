@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { HomebridgePluginUiServer } from '@homebridge/plugin-ui-utils';
 
-import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME } from '../dist/settings.js';
+import { DATA_DIR, DEVICES_FILE, PLATFORM_NAME, SHELLY_ID_PATTERN } from '../dist/settings.js';
 import { MdnsScanner } from '../dist/shelly/mdnsScanner.js';
 import { applyView, deviceView } from './view.js';
 
@@ -104,7 +104,11 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     const found = new Map();
     for (const device of await this.knownDevices()) found.set(device.id, device);
     const scanner = new MdnsScanner();
-    scanner.on('discovered', (device) => found.set(device.id, { ...found.get(device.id), ...device }));
+    scanner.on('discovered', (device) => {
+      // Same filters as the platform: real Shelly ids only, no unofficial firmware (port 9000).
+      if (!SHELLY_ID_PATTERN.test(device.id) || device.port === 9000) return;
+      found.set(device.id, { ...found.get(device.id), ...device });
+    });
     scanner.start();
     // start() sends its first query possibly before the socket is bound and
     // only re-queries after 60s; re-fire every second so a short scan works.
