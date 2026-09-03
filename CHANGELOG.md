@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - At startup a device reachable both from its config entry and from mDNS could be created twice, leaving one orphaned WebSocket connection per device for the process lifetime.
 - Settings UI: values edited in the schema form (Shelly password, debug, network interface) are no longer reverted by a later change in the device table; the network scan applies the same device id filter as the plugin; a device the plugin has not connected to yet keeps its hand-written channel settings when the table is saved.
 
+### Changed
+
+- Live measurement updates that arrive together (power, voltage, current of one status report) are written to Matter as one update per cluster instead of one per property - fewer transactions per report on the bridge.
+- Internal cleanup: the settings UI now imports the kind and channel rules from the plugin instead of keeping copies.
+
 ## [0.8.0] - 2026-08-23
 
 ### Added

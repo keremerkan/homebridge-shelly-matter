@@ -53,8 +53,10 @@ Resolution: channel setting → device setting → kind default (id contains
 the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
 `accessoryType` applies to switch components only — every other kind is fixed
-(`ComponentKind` in shellyAccessory.ts: switch/cover/dimmer plus the read-only
-temperature/humidity/flood/meter). Sensor and meter parts never split and have
+(`ComponentKind` in deviceConfig.ts: switch/cover/dimmer plus the read-only
+temperature/humidity/flood/meter; the kind predicates, `channelHidden`,
+`powerMeteringEnabled` and `resolveAccessoryType` live there too so the
+settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
 no type choice; a meter with a same-index actuator merges onto that endpoint
 (`context.partMeters`). Tested/untested status per model lives in the README
 device table. devices.json records per-channel `kinds` for the UI.
@@ -87,7 +89,7 @@ device table. devices.json records per-channel `kinds` for the UI.
   re-registered from `configureMatterAccessory` shells BEFORE discovery, using
   the serializable `context` ({deviceId, partTypes, partComponents}).
   Handlers bind lazily (component resolved at command time).
-  On device connect, `accessorySignature` decides: match → `pushCurrentState`
+  On device connect, `accessorySignatures` decides: match → `pushCurrentState`
   only; metadata-only difference (name/firmware - rename or Shelly OTA) →
   unregister+register in place; STRUCTURAL difference (`accessoryStructure`:
   device types + cluster sets, names/firmware stripped) → NEVER in place

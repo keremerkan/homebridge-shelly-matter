@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, resolveAccessoryType, splitChannelsEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -9,9 +9,6 @@ import { ACCESSORY_TYPES, channelConfig, configForDevice, defaultAccessoryType, 
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
 const UNTESTED_KINDS = ['cover'];
-
-/** Read-only sensor kinds: no accessory type choice, no splitting, one physical unit. */
-const SENSOR_KINDS = ['temperature', 'humidity', 'flood'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
@@ -26,7 +23,7 @@ export function deviceView({ config, devices } = {}) {
       const entry = configForDevice(platformConfig, device.id, device.host);
       const channelCount = Number(device.channels) > 1 ? Number(device.channels) : 0;
       const kindOf = (channel) => (Array.isArray(device.kinds) ? device.kinds[channel] : undefined) ?? 'switch';
-      const typeOf = (channel) => (kindOf(channel ?? 0) === 'switch' ? resolveAccessoryType(platformConfig, device.id, device.host, channel) : kindOf(channel ?? 0));
+      const typeOf = (channel) => (kindOf(channel ?? 0) === 'switch' ? resolveAccessoryType(entry, device.id, channel) : kindOf(channel ?? 0));
       return {
         id: device.id,
         kind: kindOf(0),
@@ -35,17 +32,13 @@ export function deviceView({ config, devices } = {}) {
         channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
         channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
         channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
-        channelsHidden: Array.from({ length: channelCount }, (_, i) => {
-          const hidden = channelConfig(entry, i)?.hidden;
-          // The triphase total channel is hidden by default (double-counting).
-          return kindOf(i) === 'meter-total' ? hidden !== false : hidden === true;
-        }),
+        channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, i, kindOf(i) === METER_TOTAL_KIND)),
         name: entry?.name ?? '',
         hidden: entry?.hidden === true,
         split: splitChannelsEnabled(entry),
-        sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every((kind) => SENSOR_KINDS.includes(kind)),
-        splittable: !Array.isArray(device.kinds) || device.kinds.every((kind) => ['switch', 'cover', 'dimmer'].includes(kind)),
-        sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter((kind) => SENSOR_KINDS.includes(kind)) : [],
+        sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every(isSensorKind),
+        splittable: !Array.isArray(device.kinds) || device.kinds.every(isSplittableKind),
+        sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter(isSensorKind) : [],
       };
     });
   return { types: [...ACCESSORY_TYPES], untested: UNTESTED_KINDS, rows };
@@ -64,8 +57,7 @@ export function applyView({ config, devices, selections } = {}) {
   // Preserve entries for devices not in this listing.
   const listedIds = new Set(list.map((device) => device.id));
   const listedHosts = new Set(list.map((device) => device.host));
-  const entries = Array.isArray(platformConfig.devices) ? platformConfig.devices.filter((e) => e && typeof e === 'object') : [];
-  const rebuilt = entries.filter((e) => {
+  const rebuilt = deviceConfigs(platformConfig).filter((e) => {
     if (e.device && listedIds.has(e.device)) return false;
     if (!e.device && e.host && listedHosts.has(e.host)) return false;
     return true;
@@ -84,7 +76,7 @@ export function applyView({ config, devices, selections } = {}) {
     // Multi-channel devices carry no parent type - each channel has its own.
     if (sel?.type) entry.accessoryType = sel.type;
     // Power metering is configured in the schema form, not the table - carry it over.
-    if (prior?.powerMetering === false) entry.powerMetering = false;
+    if (!powerMeteringEnabled(prior)) entry.powerMetering = false;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
     if (sel?.split === false) entry.splitChannels = false;
@@ -98,7 +90,7 @@ export function applyView({ config, devices, selections } = {}) {
         if (type) channelEntry.accessoryType = type;
         // The triphase total channel is hidden by DEFAULT, so only the
         // opt-in (unchecking hide) is a deviation worth recording.
-        if (kinds[channel] === 'meter-total') {
+        if (kinds[channel] === METER_TOTAL_KIND) {
           if (hidden === false) channelEntry.hidden = false;
         } else if (hidden === true) {
           channelEntry.hidden = true;

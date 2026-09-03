@@ -3,6 +3,24 @@ import type { PlatformConfig } from 'homebridge';
 export const ACCESSORY_TYPES = ['light', 'outlet', 'switch'] as const;
 export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
 
+/**
+ * The component kinds this plugin maps to Matter. Switch components carry a
+ * configurable accessory type (light/outlet/switch); every other kind has a
+ * fixed Matter device type. Shared with the settings UI so its table and the
+ * platform classify channels identically.
+ */
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'meter';
+
+/** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
+export const SENSOR_KINDS = ['temperature', 'humidity', 'flood'] as const;
+export const isSensorKind = (kind: string): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
+
+/** Kinds whose channels may split into separate accessories (sensors and meters never do). */
+export const isSplittableKind = (kind: string): boolean => kind === 'switch' || kind === 'cover' || kind === 'dimmer';
+
+/** devices.json kind marker of the triphase total channel (a meter that is hidden by default). */
+export const METER_TOTAL_KIND = 'meter-total';
+
 /** Per-channel settings of a multi-channel device; `channel` is 0-based, as on the device. */
 export interface ShellyChannelConfig {
   channel?: number;
@@ -51,6 +69,17 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
 }
 
 /**
+ * Whether a channel is hidden: its own setting, else the kind's default. The
+ * triphase total hides by default - the phases already sum to it, and exposing
+ * both would double-count energy in Apple Home's whole-home total.
+ */
+export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: number, hiddenByDefault = false): boolean =>
+  channelConfig(entry, channel)?.hidden ?? hiddenByDefault;
+
+/** Power metering is on unless the entry switches it off. */
+export const powerMeteringEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.powerMetering !== false;
+
+/**
  * Default presentation: plugs are outlets, wired relay devices usually drive
  * lights. Plug-in devices (Plug S, Plug US/UK/IT, Gen 1 Plug...) all carry
  * 'plug' in the device id.
@@ -69,10 +98,9 @@ export const splitChannelsEnabled = (entry: ShellyDeviceConfig | undefined): boo
  * Channel setting wins over the device setting, which wins over the kind-based
  * default. The single source of these rules - the platform resolves accessory
  * types through it, and the settings UI server does too, so the two can never
- * disagree.
+ * disagree. Takes the device's resolved entry (see configForDevice).
  */
-export function resolveAccessoryType(config: PlatformConfig, deviceId: string, host?: string, channel?: number): AccessoryType {
-  const entry = configForDevice(config, deviceId, host);
+export function resolveAccessoryType(entry: ShellyDeviceConfig | undefined, deviceId: string, channel?: number): AccessoryType {
   const channelEntry = channel === undefined ? undefined : channelConfig(entry, channel);
   if (channelEntry?.accessoryType && ACCESSORY_TYPES.includes(channelEntry.accessoryType)) return channelEntry.accessoryType;
   if (entry?.accessoryType && ACCESSORY_TYPES.includes(entry.accessoryType)) return entry.accessoryType;

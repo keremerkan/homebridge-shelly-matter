@@ -38,7 +38,7 @@
 
     async function loadView() {
       const { types, untested, rows } = await homebridge.request('/device-view', { config, devices });
-      view = { types, untested: untested ?? [], rows: new Map(rows.map((row) => [row.id, row])) };
+      view = { types, untested, rows: new Map(rows.map((row) => [row.id, row])) };
     }
 
     /** Harvests the table into neutral selections; server.js rebuilds the entries. */
@@ -94,7 +94,7 @@
 
     /** Sensor cell: fixed measurement labels, no type choice ("temperature + humidity"). */
     function sensorCellHtml(row) {
-      const labels = (row.sensorKinds.length ? row.sensorKinds : [row.kind]).join(' + ');
+      const labels = row.sensorKinds.join(' + ');
       const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning">untested</span>' : '';
       return `${labels}${badge}`;
     }
@@ -120,7 +120,7 @@
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>
             <td>${multi ? '<span class="text-muted">per channel</span>' : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
-            <td style="text-align: center;" title="Expose each channel as its own accessory so channels can be placed in different rooms. Changing this re-creates the accessories - reassign rooms after.">${multi && row.splittable !== false ? `<input type="checkbox" data-split="${escapeAttr(device.id)}" ${row.split ? 'checked' : ''}>` : ''}</td>
+            <td style="text-align: center;" title="Expose each channel as its own accessory so channels can be placed in different rooms. Changing this re-creates the accessories - reassign rooms after.">${multi && row.splittable ? `<input type="checkbox" data-split="${escapeAttr(device.id)}" ${row.split ? 'checked' : ''}>` : ''}</td>
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>
           ${row.channelTypes.map((_, i) =>

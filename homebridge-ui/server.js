@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import { HomebridgePluginUiServer } from '@homebridge/plugin-ui-utils';
 
@@ -67,20 +68,16 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     }
   }
 
-  /** Locates the matter.js node's fabrics store (nested one dir below the bridge id). */
+  /** Locates the matter.js node's fabrics store (one dir below the bridge id; the bridge's own dir is tried first). */
   async findFabricsFile(base, bridgeId) {
-    const direct = join(base, bridgeId, 'fabrics.fabrics');
+    let names = [];
     try {
-      await readFile(direct);
-      return direct;
-    } catch { /* fall through to a shallow search */ }
-    try {
-      for (const entry of await readdir(base, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const candidate = join(base, entry.name, 'fabrics.fabrics');
-        try { await readFile(candidate); return candidate; } catch { /* keep looking */ }
-      }
+      names = (await readdir(base, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
     } catch { /* no matter storage yet */ }
+    for (const name of [bridgeId, ...names.filter((name) => name !== bridgeId)]) {
+      const candidate = join(base, name, 'fabrics.fabrics');
+      try { await readFile(candidate); return candidate; } catch { /* keep looking */ }
+    }
     return undefined;
   }
 
@@ -113,7 +110,7 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     // start() sends its first query possibly before the socket is bound and
     // only re-queries after 60s; re-fire every second so a short scan works.
     const requery = setInterval(() => scanner.sendQuery(), 1000);
-    await new Promise((resolve) => setTimeout(resolve, SCAN_DURATION_MS));
+    await sleep(SCAN_DURATION_MS);
     clearInterval(requery);
     scanner.stop();
 

@@ -1,12 +1,13 @@
 import { promises as fs, readFileSync, writeFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
-import { channelConfig, configForDevice, deviceConfigs } from './deviceConfig.js';
+import { channelConfig, configForDevice, deviceConfigs, METER_TOTAL_KIND } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN } from './settings.js';
-import { accessorySignature, accessoryStructure, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
+import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
@@ -33,10 +34,8 @@ interface KnownDevice {
 const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 export class ShellyMatterPlatform implements DynamicPlatformPlugin {
-  readonly matterAccessories = new Map<string, MatterAccessory>();
+  private readonly matterAccessories = new Map<string, MatterAccessory>();
   readonly matter!: MatterAPI;
   private readonly shelly?: Shelly;
   private readonly shellyLog!: AnsiLogger;
@@ -47,7 +46,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly knownDevices = new Map<string, KnownDevice>();
   private saveQueue: Promise<void> = Promise.resolve();
   private saveTimer?: NodeJS.Timeout;
-  /** Full + structural signatures of every registered accessory (see accessorySignature / accessoryStructure). */
+  /** Full + structural signatures of every registered accessory (see accessorySignatures). */
   private readonly registeredSignatures = new Map<string, { signature: string; structure: string }>();
   /** Hosts with a ShellyDevice.create in flight - the config loop and mDNS discovery race for the same device at startup. */
   private readonly creatingHosts = new Set<string>();
@@ -176,21 +175,19 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // bind the port: any Gen 1 device in devices.json (here, before any
     // network activity), a Gen 1 mDNS discovery, or a Gen 1 device add.
     // devices.json also supplies each device's last known HOST for the cache
-    // reconciliation below: config entries keyed by host (or per-channel
+    // reconciliation below (via knownDevices): config entries keyed by host (or per-channel
     // deviations on them) must resolve identically in the pre-online rebuild
     // and in live registration, or the rebuilt shells get a different
     // identity and the accessory rotates (room + automations lost) on every
     // restart (#8).
-    const hostById = new Map<string, string>();
     try {
-      const parsed: unknown = JSON.parse(await fs.readFile(path.join(dataPath, DEVICES_FILE), 'utf8'));
+      const parsed: unknown = JSON.parse(await fs.readFile(this.devicesFile, 'utf8'));
       const known = (Array.isArray(parsed) ? parsed : []).filter((row): row is KnownDevice => row !== null && typeof row === 'object' && typeof (row as KnownDevice).id === 'string');
       if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
       for (const device of known) {
         // Seed the in-memory list so a save never drops devices that have
         // not been re-sighted this session (e.g. sleeping battery sensors).
         this.knownDevices.set(device.id, device);
-        if (typeof device.host === 'string') hostById.set(device.id, device.host);
         // The persisted generation is the floor for every identity built
         // this session - a rotation must never land on a used identity,
         // even when the accessory cache that recorded it is gone.
@@ -220,7 +217,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       cachedByDevice.set(deviceId, list);
     }
     for (const [deviceId, cachedList] of cachedByDevice) {
-      const host = hostById.get(deviceId);
+      const known = this.knownDevices.get(deviceId);
+      const host = typeof known?.host === 'string' ? known.host : undefined;
       if (this.isHidden(deviceId, host)) {
         // Remove hidden devices from bridge and cache.
         for (const cached of cachedList) {
@@ -228,7 +226,6 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         continue;
       }
-      const known = this.knownDevices.get(deviceId);
       if (known?.pendingRotation === true) {
         // A structural change (e.g. an update mapping new measurements) was
         // detected live last session and deferred to here: drop the old
@@ -236,8 +233,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         // registers with a fresh identity when it connects. Never re-register
         // a known uniqueId with a different structure (Apple breaks the
         // record, #8) and never rotate live (desyncs the bridge).
-        const cachedGeneration = expectedShellsFromCache(this, deviceId, cachedList, host)?.generation ?? 0;
-        this.generationByDevice.set(deviceId, Math.max(known.generation ?? 0, cachedGeneration + 1));
+        this.generationByDevice.set(deviceId, Math.max(known.generation ?? 0, cachedGenerationOf(cachedList) + 1));
         for (const cached of cachedList) {
           this.enqueue(`Failed to unregister rotated Shelly ${deviceId}`, async () => {
             this.log.info(`Shelly ${deviceId} structure changed - removing ${cached.displayName} before the bridge goes online; it returns with a fresh identity when the device connects.`);
@@ -261,7 +257,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       for (const shell of expected) {
         this.enqueue(`Failed to register cached Shelly ${deviceId}`, async () => {
           this.log.info(`Registering ${shell.displayName} from cache.`);
-          if (await this.registerVerified(shell, shell.displayName)) {
+          if (await this.registerVerified(shell)) {
             const uuids = this.uuidsByDevice.get(deviceId) ?? [];
             if (!uuids.includes(shell.UUID)) uuids.push(shell.UUID);
             this.uuidsByDevice.set(deviceId, uuids);
@@ -293,7 +289,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // Record every sighting - including hidden devices, so the
       // settings UI can list them for un-hiding.
       if (discovered.gen === 1) this.shelly?.coapServer.start();
-      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen, model: null, name: null, channels: null, kinds: null });
+      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen });
       if (this.isHidden(discovered.id, discovered.host)) {
         this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
         return;
@@ -304,14 +300,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         // (a hostname keeps resolving to the device's current IP).
         if (existing.host !== discovered.host && !this.configuredHostById.has(existing.id)) {
           this.log.warn(`Shelly ${discovered.id} moved from ${existing.host} to ${discovered.host} - reconnecting.`);
-          existing.host = discovered.host;
-          if (existing.gen === 1) {
-            void this.shelly?.coapServer.registerDevice(existing.host, existing.id, existing.sleepMode);
-          } else {
-            existing.wsClient?.stop();
-            existing.wsClient?.setHost(existing.host);
-            existing.wsClient?.start();
-          }
+          existing.wsClient?.stop();
+          existing.setHost(discovered.host);
+          if (existing.gen === 1) void this.shelly?.coapServer.registerDevice(existing.host, existing.id, existing.sleepMode);
+          else existing.wsClient?.start();
         }
         return;
       }
@@ -343,7 +335,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
       try {
-        writeFileSync(path.join(this.dataPath, DEVICES_FILE), JSON.stringify([...this.knownDevices.values()], null, 2));
+        writeFileSync(this.devicesFile, this.serializeKnownDevices());
       } catch (error) {
         this.log.error(`Failed to save devices.json on shutdown: ${getErrorMessage(error)}`);
       }
@@ -389,7 +381,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * is logged but not thrown), so registration is confirmed by reading state
    * back and retried until the server is ready.
    */
-  private async registerVerified(accessory: MatterAccessory, label: string): Promise<boolean> {
+  private async registerVerified(accessory: MatterAccessory): Promise<boolean> {
+    const label = accessory.displayName;
     // Every accessory this plugin builds is composed with onOff on every
     // part - confirm registration by reading the first part's first cluster.
     const part = accessory.parts?.[0];
@@ -411,7 +404,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // and re-registering.
       for (let poll = 0; poll < 40 && !this.stopped; poll++) {
         if (await verified()) {
-          this.registeredSignatures.set(accessory.UUID, { signature: accessorySignature(accessory), structure: accessoryStructure(accessory) });
+          this.registeredSignatures.set(accessory.UUID, accessorySignatures(accessory));
           this.matterAccessories.set(accessory.UUID, accessory);
           return true;
         }
@@ -423,8 +416,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     return false;
   }
 
-  /** Merges a device sighting into the known-device list and persists it for the settings UI. */
-  private rememberDevice(entry: KnownDevice): void {
+  /** Merges a device sighting (or a partial update) into the known-device list and persists it for the settings UI. */
+  private rememberDevice(entry: Pick<KnownDevice, 'id' | 'host' | 'gen'> & Partial<KnownDevice>): void {
     const existing = this.knownDevices.get(entry.id);
     const merged: KnownDevice = {
       ...entry,
@@ -451,15 +444,22 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * same second, and concurrent write/rename pairs on the same tmp file race
    * each other. Write-then-rename keeps the file crash-safe.
    */
+  private get devicesFile(): string {
+    return path.join(this.dataPath, DEVICES_FILE);
+  }
+
+  private serializeKnownDevices(): string {
+    return JSON.stringify([...this.knownDevices.values()], null, 2);
+  }
+
   private persistKnownDevices(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined;
       this.saveQueue = this.saveQueue
         .then(async () => {
-          const file = path.join(this.dataPath, DEVICES_FILE);
-          await fs.writeFile(`${file}.tmp`, JSON.stringify([...this.knownDevices.values()], null, 2));
-          await fs.rename(`${file}.tmp`, file);
+          await fs.writeFile(`${this.devicesFile}.tmp`, this.serializeKnownDevices());
+          await fs.rename(`${this.devicesFile}.tmp`, this.devicesFile);
         })
         .catch((error: unknown) => {
           this.log.error(`Failed to save devices.json: ${getErrorMessage(error)}`);
@@ -498,7 +498,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       model: device.model,
       name: device.name,
       channels: mapped.length,
-      kinds: mapped.map(({ kind, total }) => (total === true ? 'meter-total' : kind)),
+      kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
     });
     if (this.isHidden(device.id, host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
@@ -548,7 +548,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // session - only then may a pending rotation count as completed.
     let settled = false;
     for (const accessory of accessories) {
-      const signature = accessorySignature(accessory);
+      const { signature, structure } = accessorySignatures(accessory);
       const registered = this.registeredSignatures.get(accessory.UUID);
       let attach = accessory;
       if (registered?.signature === signature) {
@@ -556,7 +556,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.log.info(`Shelly ${device.id} (${accessory.displayName}) matches its cached registration - pushing current state.`);
         pushCurrentState(this, device, accessory);
         settled = true;
-      } else if (registered !== undefined && registered.structure !== accessoryStructure(accessory)) {
+      } else if (registered !== undefined && registered.structure !== structure) {
         // Structural change on an identity a controller already knows (e.g.
         // an update maps new measurements): re-registering the same uniqueId
         // in place breaks the accessory's record in Apple Home ("unable to
@@ -567,7 +567,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         if (!shell) continue;
         if (!deferred) {
           deferred = true;
-          this.rememberDevice({ id: device.id, host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation: generation + 1, pendingRotation: true });
+          this.rememberDevice({ id: device.id, host, gen: device.gen, generation: generation + 1, pendingRotation: true });
           this.log.warn(
             `Shelly ${device.id} (${accessory.displayName}) changed structure since it was registered (measurements or components added/removed). `
             + 'To keep Apple Home stable, the new structure is applied at the next restart of Homebridge (or this child bridge) - until then the accessory keeps its current shape.',
@@ -584,7 +584,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
           if (cached) await this.unregisterAccessory(cached);
         }
         this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
-        if (!(await this.registerVerified(accessory, accessory.displayName))) continue;
+        if (!(await this.registerVerified(accessory))) continue;
         settled = true;
       }
       this.pendingUpdateAttach.push({ device, accessory: attach });
@@ -593,7 +593,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // cache); a pending rotation counts as completed only once an identity is
     // confirmed live - and never right after the deferred branch set it.
     if (!deferred) {
-      this.rememberDevice({ id: device.id, host, gen: device.gen, model: device.model, name: device.name, channels: null, kinds: null, generation, ...(settled ? { pendingRotation: false } : {}) });
+      this.rememberDevice({ id: device.id, host, gen: device.gen, generation, ...(settled ? { pendingRotation: false } : {}) });
     }
     this.scheduleUpdateAttach();
 
