@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, default
  */
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
-const UNTESTED_KINDS = ['gas'];
+const UNTESTED_KINDS = ['smoke', 'gas'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current

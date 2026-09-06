@@ -9,10 +9,10 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
  * fixed Matter device type. Shared with the settings UI so its table and the
  * platform classify channels identically.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'gas' | 'meter';
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'smoke' | 'gas' | 'meter';
 
 /** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
-export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration', 'gas'] as const;
+export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration', 'smoke', 'gas'] as const;
 
 /** How a gas detector's alarm is exposed - Matter has no gas detector type, so the user picks the alarm it appears as. */
 export const GAS_ALARM_MODES = ['smoke', 'co'] as const;

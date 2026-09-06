@@ -117,7 +117,7 @@ Matter mapping. [Open an issue](https://github.com/keremerkan/homebridge-shelly-
 if you own one and want it prioritized — we can usually provide a beta build to test:
 
 - RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
-- Sensors: Motion, Smoke, BLU sensors via a Shelly BLE gateway — including battery level
+- Sensors: Motion, BLU sensors via a Shelly BLE gateway — including battery level
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
 - TRV / thermostats
 
@@ -157,6 +157,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other energy meters (Gen 1 EM / 3EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists - Gen 1 EM/3EM: first clamp on the contactor relay); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
+| Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
 | Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
 
