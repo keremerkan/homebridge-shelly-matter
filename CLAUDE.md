@@ -61,7 +61,7 @@ the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
 `accessoryType` applies to switch components only — every other kind is fixed
 (`ComponentKind` in deviceConfig.ts: switch/cover/dimmer plus the read-only
-temperature/humidity/flood/contact/illuminance/vibration/meter; the kind predicates, `channelHidden`,
+temperature/humidity/flood/contact/illuminance/vibration/smoke/gas/meter; the kind predicates, `channelHidden`,
 `powerMeteringEnabled` and `resolveAccessoryType` live there too so the
 settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
 no type choice; a meter with a same-index actuator merges onto that endpoint
@@ -122,9 +122,18 @@ device table. devices.json records per-channel `kinds` for the UI.
 - **Energy push throttle 30s** (`ENERGY_PUSH_MIN_INTERVAL_MS`): Homebridge
   documents that energy updates reach controllers unthrottled via
   CumulativeEnergyMeasured events.
-- **`PROPERTY_MAP` is the single source** for Shelly property → Matter
-  attribute mapping (snapshot AND live updates). Matter wants milli-units
-  (mV/mA/mW/mWh); energy attributes are nested `{energy: n}`.
+- **`PART_SHAPES` + `PROPERTY_MAP` are the single source** of the Matter
+  mapping. `PART_SHAPES` is keyed by part TOKEN (light/outlet/switch, cover,
+  dimmer, the sensor kinds, `smokealarm`/`coalarm` for gas, meter) and gives
+  the kind, the Matter device type and the clusters at rest (FIRST cluster =
+  primary = registration-verify probe; rest state = what a `momentary` row is
+  cleared back to). `PROPERTY_MAP` rows apply by `kinds` (expanded to the
+  kind's tokens) or by `tokens` when the shape depends on the token; the same
+  rows feed snapshots AND live updates. Adding a kind = one PART_SHAPES row,
+  rows, a `SENSOR_KIND_BY_NAME` entry (live classifier; the cache prefix table
+  derives from it), `SENSOR_PART_LABEL`, and the deviceConfig kind lists.
+  Matter wants milli-units (mV/mA/mW/mWh); energy attributes are nested
+  `{energy: n}`.
 - **Identity rotation**: accessory identity embeds the effective composition —
   every device (single-channel included) is composed:
   `uuid(deviceId|bridge|<idx:token,...>[|gN])` (split:
@@ -227,7 +236,9 @@ needed anymore. engines enforces >=2.3.0.
   maps every fixture, prints parts/clusters and checks the cache round trip;
   `fixtures/fetch.sh` re-downloads the upstream mocks (see `fixtures/README.md`;
   the EM Gen4 fixture is hand-assembled from issue #7 and cannot be re-fetched).
-  `fixtures/sleeping-device.mjs` covers the sleeping-device paths;
+  `fixtures/harness.mjs` holds the shared stubs (fake Matter api/platform, hb
+  log, fixture loop) the scripts import; `fixtures/sleeping-device.mjs` covers
+  the sleeping-device paths;
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,
