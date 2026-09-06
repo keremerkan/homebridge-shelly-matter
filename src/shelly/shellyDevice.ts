@@ -90,6 +90,7 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
   hasUpdate = false;
   sleepMode = false;
   cached = false;
+  udp = false;
 
   colorUpdateTimeout?: NodeJS.Timeout;
   colorUpdateTimeoutMs = 200;
@@ -331,6 +332,7 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       'SBWS-90CM': 'Shelly BLU Weather Station',
       'SBHT-103C': 'Shelly BLU H&T Display ZB',
       'SBHT-203C': 'Shelly BLU H&T ZB',
+      'SBMO-103Z': 'Shelly BLU Motion ZB',
       'SBBT-104CEU': 'Shelly BLU Wall Switch 4 ZB',
       'SBBT-104CUS': 'Shelly BLU RC Button 4 ZB',
       'SBBT-102C': 'Shelly BLU Button Tough 1 ZB',
@@ -378,6 +380,7 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
     try {
       for (const component of components as unknown as BTHomeBluTrvComponent[]) {
         if (component.key.startsWith('blutrv:')) {
+          this.log.debug(`- blutrv:\n${debugStringify(component)}`);
           if (!isValidString(component.key, 6) || !isValidObject(component.status, 5) || !isValidObject(component.config, 5)) {
             this.log.error(
               `BTHome BLUTrv id ${CYAN}${component.config.id}${er} key ${CYAN}${component.key}${er} address ${CYAN}${component.config.addr}${er} has no valid data: ${debugStringify(component)}`,
@@ -396,44 +399,47 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       }
       for (const component of components as unknown as BTHomeDeviceComponent[]) {
         if (component.key.startsWith('bthomedevice:')) {
+          this.log.debug(`- bthomedevice:\n${debugStringify(component)}`);
           // Shelly BLU gateway doesn't have config.meta.ui.local_name!
           // New paired BTHome devices don't have attrs.model_id
           /* v8 ignore next if cause new paired devices don't have attrs.model_id */
           if (component.attrs?.model_id === 1) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-002C', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-002C', icon: null } }; // 1 - Shelly BLU Button1 / Button Tough 1
           } else if (component.attrs?.model_id === 2) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBDW-002C', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBDW-002C', icon: null } }; // 2 - Shelly BLU Door/Window
           } else if (component.attrs?.model_id === 3) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBHT-003C', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBHT-003C', icon: null } }; // 3 - Shelly BLU H&T
           } else if (component.attrs?.model_id === 5) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBMO-003Z', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBMO-003Z', icon: null } }; // 5 - Shelly BLU Motion
           } else if (component.attrs?.model_id === 6) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-004CEU', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-004CEU', icon: null } }; // 6 - Shelly BLU Wall Switch 4
           } else if (component.attrs?.model_id === 7) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-004CUS', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-004CUS', icon: null } }; // 7 - Shelly BLU RC Button 4
           } else if (component.attrs?.model_id === 8) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'TRV', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'TRV', icon: null } }; // 8 - Shelly BLU TRV (SBTR-001AEU)
           } else if (component.attrs?.model_id === 9) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBRC-005B', icon: null } }; // 9 -Shelly BLU Remote Control ZB
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBRC-005B', icon: null } }; // 9 - Shelly BLU Remote Control ZB
           } else if (component.attrs?.model_id === 0xb) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBWS-90CM', icon: null } }; // 11 -Shelly BLU Weather Station
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBWS-90CM', icon: null } }; // 11 - Shelly BLU Weather Station
           } else if (component.attrs?.model_id === 0xc) {
             component.config.meta = { ui: { view: 'regular', local_name: 'SBHT-103C', icon: null } }; // 12 - Shelly BLU H&T Display ZB
           } else if (component.attrs?.model_id === 0x11) {
             component.config.meta = { ui: { view: 'regular', local_name: 'SBHT-203C', icon: null } }; // 17 - Shelly BLU H&T ZB
+          } else if (component.attrs?.model_id === 0x13) {
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBMO-103Z', icon: null } }; // 19 - Shelly BLU Motion ZB
           } else if (component.attrs?.model_id === 0x14) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBDW-103C', icon: null } };
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBDW-103C', icon: null } }; // 20 - Shelly BLU Door/Window ZB
           } else if (component.attrs?.model_id === 0x15) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-104CEU', icon: null } }; // 21 -Shelly BLU Wall Switch 4 ZB
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-104CEU', icon: null } }; // 21 - Shelly BLU Wall Switch 4 ZB
           } else if (component.attrs?.model_id === 0x16) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-104CUS', icon: null } }; // 22 -Shelly BLU RC Button 4 ZB
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-104CUS', icon: null } }; // 22 - Shelly BLU RC Button 4 ZB
           } else if (component.attrs?.model_id === 0x17) {
-            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-102C', icon: null } }; // 23 -Shelly BLU Button Tough 1 ZB
+            component.config.meta = { ui: { view: 'regular', local_name: 'SBBT-102C', icon: null } }; // 23 - Shelly BLU Button Tough 1 ZB
           }
           if (
             !isValidString(component.key, 12) ||
             !isValidObject(component.status, 5) ||
-            !isValidObject(component.config, 5) ||
+            !isValidObject(component.config, 4) ||
             !isValidObject(component.config.meta, 1) ||
             !isValidObject(component.config.meta.ui, 2) ||
             !isValidString(component.config.meta.ui.local_name)
@@ -469,6 +475,7 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       }
       for (const component of components as unknown as BTHomeSensorComponent[]) {
         if (component.key.startsWith('bthomesensor:')) {
+          this.log.debug(`- bthomesensor:\n${debugStringify(component)}`);
           if (
             !isValidString(component.key, 12) ||
             !isValidObject(component.status, 1) ||
@@ -781,8 +788,28 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       }
     }
 
-    // For gen 2+ battery powered devices check if WsServer is enabled and set correctly
-    if (device.gen >= 2 && device.sleepMode) {
+    // For gen 2+ check if rpc over udp is enabled and set correctly
+    // (local change: only when the platform runs the UDP server, otherwise WebSocket stays the transport)
+    if (device.gen >= 2 && shelly.udpServer.isListening) {
+      const ipv4 = shelly.ipv4Address;
+      const rpc = device.getComponent('sys')?.getValue('rpc_udp') as { dst_addr: string | null; listen_port: number | null } | undefined;
+      if (rpc === undefined) {
+        log.error(`RPC over UDP sys component not found for device ${dn}${device.name}${er} id ${hk}${device.id}${er}.`);
+      }
+      if (rpc && rpc.dst_addr !== null && rpc.listen_port !== null && (rpc.dst_addr !== ipv4 + ':8585' || rpc.listen_port !== 8585)) {
+        log.warn(
+          `The RPC over UDP settings is not configured correctly for device ${dn}${device.name}${wr} id ${hk}${device.id}${wr}: ${db}${debugStringify(rpc)}${wr}. ` +
+            `Enable and configure it (i.e. Destination address: ${ipv4}:8585 Listening port: 8585) in the device settings to receive udp updates from the device.`,
+        );
+      }
+      if (rpc?.dst_addr === ipv4 + ':8585' && rpc.listen_port === 8585) {
+        device.udp = true;
+        log.info(`Using RPC over UDP for device ${dn}${device.name}${nf} id ${hk}${device.id}${nf}.`);
+      }
+    }
+
+    // For gen 2+ battery powered devices check if WsServer is enabled and set correctly unless the device enabled rpc over udp.
+    if (device.gen >= 2 && device.sleepMode && !device.udp) {
       const ws = device.getComponent('ws');
       if (ws) {
         if ((ws.getValue('enable') as boolean | undefined) === false) {
@@ -845,19 +872,19 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
           `sleep mode ${device.sleepMode ? wr : CYAN}${device.sleepMode}${db} cached ${device.cached ? wr : CYAN}${device.cached}${db} ` +
           // oxlint-disable-next-line typescript/no-unnecessary-template-expression typescript/no-unnecessary-boolean-literal-compare
           `${device.gen >= 2 && device.sleepMode === false && device.wsClient?.isConnected === false ? 'websocket ' + er + 'false ' + db : ''}` +
-          `last seen ${CYAN}${lastSeenDate.toLocaleString()}${db}.`,
+          `wsc ${device.wsClient?.isConnected === true ? wr : CYAN}${device.wsClient?.isConnected === true}${db} udp ${device.udp ? wr : CYAN}${device.udp}${db} last seen ${CYAN}${lastSeenDate.toLocaleString()}${db}.`,
       );
 
       // Check WebSocket client for gen 2+ devices and restart if not connected
       // v8 ignore else
-      if (device.gen >= 2 && !device.sleepMode && device.wsClient?.isConnected === false) {
+      if (device.gen >= 2 && !device.udp && !device.sleepMode && device.wsClient?.isConnected === false) {
         log.debug(`WebSocket client for device ${hk}${device.id}${nf} host ${zb}${device.host}${nf} is not connected. Starting connection...`);
         device.wsClient.start();
       }
     }, 60 * 1000);
 
     // Start WebSocket client for gen 2+ devices if not in sleep mode
-    if (device.gen >= 2 && !device.sleepMode) {
+    if (device.gen >= 2 && !device.udp && !device.sleepMode) {
       device.wsClient = new WsClient(device.id, host, 80, shelly.password);
 
       // Start the WebSocket client for devices that are not a cache JSON file
@@ -1173,7 +1200,9 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
           // v8 ignore else
           if (sensor.is_valid === true && sensor.units === 'C' && isValidNumber(sensor.tC, -55, 125)) this.getComponent('temperature')?.setValue('value', sensor.tC);
           // v8 ignore else
-          if (sensor.is_valid === true && sensor.units === 'F' && isValidNumber(sensor.tF, -67, 257)) this.getComponent('temperature')?.setValue('value', sensor.tF);
+          if (sensor.is_valid === true && sensor.units === 'F' && isValidNumber(sensor.tC, -55, 125)) this.getComponent('temperature')?.setValue('value', sensor.tC);
+          else if (sensor.is_valid === true && sensor.units === 'F' && isValidNumber(sensor.tF, -67, 257))
+            this.getComponent('temperature')?.setValue('value', ((sensor.tF - 32) * 5) / 9);
         }
         if (key === 'hum') {
           this.updateComponent('humidity', data[key] as ShellyData);

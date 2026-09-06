@@ -214,7 +214,19 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 
-The platform also accepts `mdnsDiscover` (default `true`). Set it to `false` to turn off background mDNS discovery — devices with a configured `host` still connect directly, so this is safe once every device has a fixed IP. New devices are then added by IP in this list, or via the settings UI's **Scan network** button (which runs a one-off scan regardless of this setting).
+The platform also accepts `rpcOverUdp` (default `false`): see [RPC over UDP](#rpc-over-udp-gen-2) below. It also accepts `mdnsDiscover` (default `true`). Set it to `false` to turn off background mDNS discovery — devices with a configured `host` still connect directly, so this is safe once every device has a fixed IP. New devices are then added by IP in this list, or via the settings UI's **Scan network** button (which runs a one-off scan regardless of this setting).
+
+## RPC over UDP (Gen 2+)
+
+Gen 2+ devices normally report over a WebSocket the plugin keeps open to each
+device. With `rpcOverUdp: true` (settings form: "RPC over UDP") the plugin also
+listens on UDP port 8585, and any device you configure for it reports there
+instead: on the device's web page, **Settings > RPC over UDP**, enable it and
+set the destination to `<homebridge-ip>:8585` with listening port `8585`.
+Devices without that setting keep using the WebSocket. This is the simplest
+way to get updates from Gen 2+ battery devices (Plus H&T, H&T Gen3, Flood Gen4,
+Plus Smoke), which sleep and cannot hold a WebSocket; it needs a stable IP for
+the Homebridge host. Implemented, not yet hardware-confirmed.
 
 ## Changing a device's accessory type or split setting
 

@@ -123,6 +123,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     const transportLevel = this.config.debug === true ? LogLevel.DEBUG : LogLevel.WARN;
     WsClient.logLevel = transportLevel;
     this.shelly.wsServer.log.logLevel = transportLevel;
+    this.shelly.udpServer.log.logLevel = transportLevel;
 
     api.on('didFinishLaunching', () => void this.start());
     api.on('shutdown', () => this.stop());
@@ -332,6 +333,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       if (this.shelly?.getDeviceByHost(host) || this.isHiddenHost(host)) return;
       void this.addHost(host, false, false);
     });
+
+    // RPC over UDP (Gen 2+): devices configured to push to <homebridge-ip>:8585
+    // report over UDP instead of a WebSocket the plugin has to keep open -
+    // the simplest transport for Gen 2+ battery devices. Opt-in: the device
+    // detection in the protocol layer only runs while this server listens.
+    if (this.config.rpcOverUdp === true) {
+      this.shelly.udpServer.start();
+      this.log.info('RPC over UDP enabled - devices configured with destination <homebridge-ip>:8585 report over UDP.');
+    }
 
     for (const entry of deviceConfigs(this.config)) {
       if (entry.host && entry.hidden !== true) void this.addHost(entry.host, entry.device === undefined);

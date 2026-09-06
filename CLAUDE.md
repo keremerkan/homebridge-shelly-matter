@@ -14,13 +14,20 @@ No HAP accessories are published; the plugin runs best in a child bridge with
 
 - `src/shelly/` — **vendored** Shelly protocol layer from
   [Luligu/matterbridge-shelly](https://github.com/Luligu/matterbridge-shelly)
-  (Apache-2.0, see `NOTICE`). Keep diffs against upstream MINIMAL so future
-  syncs stay easy: the only local changes are import rewrites
-  (`matterbridge/logger` and `node-ansi-logger` → the local
-  `./utils/logger.js` shim, `matterbridge/utils` → `./utils/index.js`),
-  `src/shelly/utils/` vendored from Luligu/matterbridge (plus our own
-  `utils/logger.ts` - a minimal node-ansi-logger replacement with a
-  Homebridge-blending standard-color palette),
+  **release 2.6.0** (Apache-2.0, see `NOTICE`). Keep diffs against upstream
+  MINIMAL so future syncs stay easy: the only local changes are import
+  rewrites (`matterbridge/logger` and `node-ansi-logger` → the local
+  `./utils/logger.js` shim, `matterbridge/utils` → `./utils/index.js`,
+  `matterbridge/dgram` → `./utils/unicast.js`),
+  `src/shelly/utils/` vendored from Luligu/matterbridge (`dgram.ts` +
+  `unicast.ts` from its `packages/dgram`, with the matterbridge CLI-flag
+  `hasParameter` verbose/debug/silent lookups replaced by plain `false`; plus
+  our own `utils/logger.ts` - a minimal node-ansi-logger replacement with a
+  Homebridge-blending standard-color palette), the RPC-over-UDP detection in
+  `shellyDevice.ts` `create()` gated on `shelly.udpServer.isListening` (the
+  platform only starts the UDP server with `rpcOverUdp: true`; without the
+  gate a device configured for UDP would lose its WebSocket and get no updates,
+  and every other device would log the upstream "not configured" warning),
   two reconnect log lines downgraded `log.info` → `log.debug`
   (`shellyDevice.ts` "is not connected. Starting connection..." and the same
   message in `shelly.ts`) — Gen2 idle-socket reconnect cycling is normal and
@@ -244,7 +251,7 @@ needed anymore. engines enforces >=2.3.0.
 
 ## Release checklist (pre-publish)
 
-- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it first (re-vendor, re-apply the import rewrites + three log demotions, diff)
+- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it: `git archive <tag> src` into a scratch dir, copy the vendored files over, re-apply the local changes listed above (import rewrites, three log demotions, mdns warn demotion, wsClient port skip, UDP gate; `diff -u` of our tree against the previously vendored tag gives the patch set), diff, then build + all fixture suites + identity diff + rig
 - Test on live server + real devices before any npm publish (user publishes)
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already

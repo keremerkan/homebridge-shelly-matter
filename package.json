@@ -46,7 +46,7 @@
   ],
   "dependencies": {
     "@homebridge/plugin-ui-utils": "^2.2.5",
-    "coap": "1.5.0",
+    "coap": "1.6.0",
     "multicast-dns": "7.2.5",
     "ws": "8.21.1"
   },
