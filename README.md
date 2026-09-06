@@ -85,6 +85,9 @@ one confirmation moves it to tested.
   its vibration detection can be exposed as a motion sensor with `vibrationAsMotion`
   (confirmed too; raise the sensor's "Vibration sensitivity" in the Shelly app if impacts
   do not register, the factory default of 50 is often too low).
+  The Shelly Gas has no Matter equivalent; its alarm is exposed as a smoke or CO alarm of
+  your choice with `gasAlarm`, confirmed as a CO alarm by field testing
+  ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)).
   Battery sensors that are asleep when Homebridge starts are restored from their last
   reported state (once the plugin has seen them awake once) and refresh when they next report.
   Gen 1 sensor models report over CoIoT — the note below applies.
@@ -98,9 +101,6 @@ one confirmation moves it to tested.
 - **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
   tested Gen 1 devices, but no hardware confirmation yet.
 - **Smoke sensors** (Plus Smoke, Shelly Smoke Gen 1): smoke alarm and battery level.
-- **Shelly Gas**: Matter has no gas detector type, so its alarm is exposed as a smoke or
-  CO alarm of your choice with `gasAlarm` (in field testing,
-  [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)).
 
 ### Gen 1 devices and CoIoT
 
@@ -153,7 +153,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
 | Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
-| Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
+| Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) (CO alarm mode) |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
