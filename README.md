@@ -121,7 +121,7 @@ if you own one and want it prioritized — we can usually provide a beta build t
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
 - TRV / thermostats
 
-Not mappable to Matter: gas sensors (no Matter device type), vibration.
+Not mappable to Matter as what they are: gas sensors (no Matter device type; a CO-alarm style re-mapping is under consideration), tilt.
 
 ### Device table
 
