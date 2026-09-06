@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sleeping battery devices survive restarts**: a device that is asleep when Homebridge starts (H&T, Flood, Door/Window, ...) is now restored from the state it reported when it was last awake, so its reports are picked up as soon as it wakes. Previously such a device had to be reachable at startup, and until then its reports were dropped. A device the plugin has never reached is set up the first time it reports over CoIoT, and "could not reach" is logged once instead of every minute.
 - **Shelly Door/Window 2** ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)): contact (open/closed), light level, temperature and battery. The vibration (impact) detection can be exposed as a motion sensor with the new per-device `vibrationAsMotion` option (off by default: Matter has no vibration sensor type, so it is a deliberate re-mapping). The Door/Window 1 follows the same paths.
 
 ### Fixed

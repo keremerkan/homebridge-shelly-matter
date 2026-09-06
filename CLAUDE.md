@@ -153,6 +153,14 @@ device table. devices.json records per-channel `kinds` for the UI.
   scans as primary discovery (scanner's first query races its socket bind and
   re-queries only at 60s; responders rate-limit) — `/devices` from this file is
   primary, `/scan` (with 1s re-query loop) is fallback only.
+- **Sleeping devices** (`restoreSleepingDevice`): a CoIoT report from a host
+  with no device object is DROPPED by the vendored layer, and battery sensors
+  are unreachable at startup - so the platform saves their payloads
+  (`device.saveDevicePayloads` → `<dataPath>/<id>.json`, the file-host form)
+  on add, restores them from that file when unreachable (`setHost` to the
+  real host, `cached = true`), and on a CoIoT report from an unknown host
+  runs a one-shot `addHost` while the device is awake. Never restore
+  non-sleeping devices from a file. `fixtures/sleeping-device.mjs` covers it.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
@@ -212,6 +220,7 @@ needed anymore. engines enforces >=2.3.0.
   maps every fixture, prints parts/clusters and checks the cache round trip;
   `fixtures/fetch.sh` re-downloads the upstream mocks (see `fixtures/README.md`;
   the EM Gen4 fixture is hand-assembled from issue #7 and cannot be re-fetched).
+  `fixtures/sleeping-device.mjs` covers the sleeping-device paths;
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,

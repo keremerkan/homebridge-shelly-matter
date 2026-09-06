@@ -29,6 +29,8 @@ interface KnownDevice {
   generation?: number;
   /** A structural change was detected on a live, registered identity; the rotation applying it runs pre-online at the next startup. */
   pendingRotation?: boolean;
+  /** Battery device that sleeps between reports (restored from its saved payload when unreachable at startup). */
+  sleeping?: boolean;
 }
 
 const HOST_RETRY_MS = 60_000;
@@ -56,6 +58,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * after mDNS reports the device's IP, or the entry stops resolving.
    */
   private readonly configuredHostById = new Map<string, string>();
+  /** Hosts already reported unreachable once - later failures log at debug (sleeping sensors are unreachable most of the time). */
+  private readonly unreachableWarned = new Set<string>();
   /** The accessory UUIDs currently registered for a device - one entry grouped, several when splitChannels is on. */
   private readonly uuidsByDevice = new Map<string, string[]>();
   /** The current rotation generation per device (see ShellyAccessoryContext.generation). */
@@ -312,10 +316,21 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
     this.shelly.on('add', (device: ShellyDevice) => {
       if (device.gen === 1) this.shelly?.coapServer.start();
+      // A sleeping device is unreachable most of the time: keep its payloads
+      // on disk so the next startup can restore it (see restoreSleepingDevice).
+      if (device.sleepMode && !device.cached && this.shelly) void device.saveDevicePayloads(this.shelly.dataPath);
       // Serialize registrations: concurrent parts-list changes race matter.js
       // endpoint locks ("Cannot lock ... synchronously") when devices come
       // online together, and controllers can miss the dropped notification.
       this.enqueue(`Failed to register Shelly ${device.id}`, () => this.registerDevice(device));
+    });
+
+    // A CoIoT report from a host without a device object (a sleeping sensor
+    // that was unreachable at startup and has no saved payload yet) means the
+    // device is awake right now - the one moment it can be fetched.
+    this.shelly.coapServer.on('coapupdate', (host: string) => {
+      if (this.shelly?.getDeviceByHost(host) || this.isHiddenHost(host)) return;
+      void this.addHost(host, false, false);
     });
 
     for (const entry of deviceConfigs(this.config)) {
@@ -346,8 +361,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.shelly?.destroy();
   }
 
-  /** Creates and adds the device at a host; `hostOnlyEntry` marks a host-only config entry's host (see configuredHostById). */
-  private async addHost(host: string, hostOnlyEntry = false): Promise<void> {
+  /**
+   * Creates and adds the device at a host. `hostOnlyEntry` marks a host-only
+   * config entry's host (see configuredHostById); `retry` schedules another
+   * attempt when the host is unreachable (off for one-shot wake-up attempts).
+   */
+  private async addHost(host: string, hostOnlyEntry = false, retry = true): Promise<void> {
     if (!this.shelly || this.shelly.hasDeviceHost(host) || this.creatingHosts.has(host)) return;
     this.creatingHosts.add(host);
     const device = await ShellyDevice.create(this.shelly, this.shellyLog, host)
@@ -357,7 +376,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       })
       .finally(() => this.creatingHosts.delete(host));
     if (!device) {
-      this.log.warn(`Could not reach Shelly at ${host}, retrying in ${HOST_RETRY_MS / 1000}s.`);
+      if (await this.restoreSleepingDevice(host)) return;
+      const known = [...this.knownDevices.values()].find((row) => row.host === host);
+      const hint = known?.sleeping ? ' (a sleeping battery device - it is set up when it next reports)' : '';
+      if (this.unreachableWarned.has(host)) this.log.debug(`Could not reach Shelly at ${host}${hint}.`);
+      else this.log.warn(`Could not reach Shelly at ${host}${hint}${retry ? `, retrying every ${HOST_RETRY_MS / 1000}s` : ''}.`);
+      this.unreachableWarned.add(host);
+      if (!retry) return;
       const timer = setTimeout(() => {
         this.hostRetryTimers.delete(host);
         void this.addHost(host, hostOnlyEntry);
@@ -365,6 +390,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       this.hostRetryTimers.set(host, timer);
       return;
     }
+    this.unreachableWarned.delete(host);
     if (hostOnlyEntry) this.configuredHostById.set(device.id, host);
     // The same device reached through two host strings (config hostname vs
     // mDNS IP) - keep the first; the loser's transport must not linger.
@@ -373,6 +399,41 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       return;
     }
     await this.shelly.addDevice(device);
+  }
+
+  /**
+   * A sleeping battery device (H&T, Flood, Door/Window, ...) is unreachable
+   * most of the time, and a CoIoT report from a host without a device object
+   * is dropped by the protocol layer. So an unreachable host whose device
+   * devices.json knows is rebuilt from the payloads saved when it was last
+   * awake (`<dataPath>/<id>.json`, the file-host form ShellyDevice.create
+   * understands), pointed at its real host, and added as a cached device:
+   * its accessory comes up with the last known values and the live report
+   * that wakes it refreshes everything (the protocol layer re-fetches and
+   * re-saves on 'awake'). Only devices that sleep are restored this way.
+   */
+  private async restoreSleepingDevice(host: string): Promise<ShellyDevice | undefined> {
+    if (!this.shelly) return undefined;
+    const known = [...this.knownDevices.values()].find((row) => row.host === host);
+    if (!known) return undefined;
+    const file = path.join(this.dataPath, `${known.id}.json`);
+    try {
+      await fs.access(file);
+    } catch {
+      return undefined;
+    }
+    const device = await ShellyDevice.create(this.shelly, this.shellyLog, file).catch(() => undefined);
+    if (!device) return undefined;
+    if (!device.sleepMode || this.shelly.getDevice(device.id)) {
+      device.destroy();
+      return undefined;
+    }
+    device.setHost(host);
+    device.cached = true;
+    device.online = false;
+    this.log.info(`Shelly ${device.id} at ${host} is a sleeping device - restored from its last saved state; live values arrive when it next reports.`);
+    await this.shelly.addDevice(device);
+    return device;
   }
 
   /**
@@ -442,6 +503,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     const pendingRotation = entry.pendingRotation ?? existing?.pendingRotation;
     if (pendingRotation !== undefined) merged.pendingRotation = pendingRotation;
     else delete merged.pendingRotation;
+    const sleeping = entry.sleeping ?? existing?.sleeping;
+    if (sleeping !== undefined) merged.sleeping = sleeping;
+    else delete merged.sleeping;
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
@@ -496,6 +560,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     return configForDevice(this.config, deviceId, host)?.hidden === true;
   }
 
+  /** Hidden by the entry a host resolves to (by the id devices.json recorded for it, else host-only). */
+  private isHiddenHost(host: string): boolean {
+    const known = [...this.knownDevices.values()].find((row) => row.host === host);
+    return this.isHidden(known?.id ?? '', host);
+  }
+
   private async registerDevice(device: ShellyDevice): Promise<void> {
     const mapped = mappedComponents(device);
     const host = this.configHost(device);
@@ -507,6 +577,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: device.name,
       channels: mapped.length,
       kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
+      ...(device.sleepMode ? { sleeping: true } : {}),
     });
     if (this.isHidden(device.id, host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);

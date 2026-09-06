@@ -80,6 +80,8 @@ one confirmation moves it to tested.
   The Shelly Door/Window 2 (contact, light level, temperature, battery; vibration as a
   motion sensor with `vibrationAsMotion`) is mapped as of 0.9.0 and in field testing
   ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)).
+  Battery sensors that are asleep when Homebridge starts are restored from their last
+  reported state (once the plugin has seen them awake once) and refresh when they next report.
   Gen 1 sensor models report over CoIoT — the note below applies.
 
 ### Supported, not yet tested on real hardware
