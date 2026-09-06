@@ -37,8 +37,8 @@
       : type.charAt(0).toUpperCase() + type.slice(1));
 
     async function loadView() {
-      const { types, untested, rows } = await homebridge.request('/device-view', { config, devices });
-      view = { types, untested, rows: new Map(rows.map((row) => [row.id, row])) };
+      const { types, gasAlarmModes, untested, rows } = await homebridge.request('/device-view', { config, devices });
+      view = { types, gasAlarmModes: gasAlarmModes ?? [], untested, rows: new Map(rows.map((row) => [row.id, row])) };
     }
 
     /** Harvests the table into neutral selections; server.js rebuilds the entries. */
@@ -52,6 +52,10 @@
         sel.hidden = document.querySelector(`input[data-hide="${CSS.escape(device.id)}"]`)?.checked === true;
         const splitBox = document.querySelector(`input[data-split="${CSS.escape(device.id)}"]`);
         if (splitBox) sel.split = splitBox.checked;
+        const vibrationBox = document.querySelector(`input[data-vibration="${CSS.escape(device.id)}"]`);
+        if (vibrationBox) sel.vibrationAsMotion = vibrationBox.checked;
+        const gasSelect = document.querySelector(`select[data-gas="${CSS.escape(device.id)}"]`);
+        if (gasSelect) sel.gasAlarm = gasSelect.value;
         // Every channel row has a hide checkbox; only switch channels have a
         // type dropdown (covers/dimmers are fixed kinds).
         const channelKinds = view.rows.get(device.id)?.channelKinds ?? [];
@@ -96,7 +100,16 @@
     function sensorCellHtml(row) {
       const labels = row.sensorKinds.join(' + ');
       const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning">untested</span>' : '';
-      return `${labels}${badge}`;
+      const options = [];
+      if (row.vibrationAsMotion !== undefined) {
+        options.push(`<label style="margin: 0; font-weight: normal;" title="Expose the vibration (impact) detection as a motion sensor: an impact shows as motion for 10 seconds. Matter has no vibration sensor type. Raise the sensor's vibration sensitivity in the Shelly app if impacts do not register."><input type="checkbox" data-vibration="${escapeAttr(row.id)}" ${row.vibrationAsMotion ? 'checked' : ''}> impact as motion</label>`);
+      }
+      if (row.gasAlarm !== undefined) {
+        const modeLabel = { off: 'not exposed', smoke: 'smoke alarm', co: 'carbon monoxide alarm' };
+        const choices = ['off', ...view.gasAlarmModes].map((mode) => `<option value="${mode}" ${row.gasAlarm === mode ? 'selected' : ''}>${modeLabel[mode] ?? mode}</option>`).join('');
+        options.push(`<label style="margin: 0; font-weight: normal;" title="Matter has no gas detector type: show the gas alarm as a smoke or carbon monoxide alarm (mild gas = warning, heavy gas = critical). The ppm value is not shown.">alarm shown as <select class="custom-select custom-select-sm" style="width: auto; display: inline-block;" data-gas="${escapeAttr(row.id)}">${choices}</select></label>`);
+      }
+      return `${labels}${badge}${options.length ? '<br>' + options.join(' &nbsp; ') : ''}`;
     }
 
     function nameInputHtml(row) {
@@ -133,7 +146,7 @@
           <thead><tr><th>Device</th><th></th><th>Name</th><th>Accessory type</th><th title="Expose each channel as its own accessory so channels can be placed in different rooms.">Split</th><th>Hide</th></tr></thead>
           <tbody>${rows.join('')}</tbody>
         </table>`;
-      for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split]')) {
+      for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], select[data-gas]')) {
         el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
       }
     }

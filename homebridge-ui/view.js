@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -39,9 +39,13 @@ export function deviceView({ config, devices } = {}) {
         sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every(isSensorKind),
         splittable: !Array.isArray(device.kinds) || device.kinds.every(isSplittableKind),
         sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter(isSensorKind) : [],
+        // Per-kind options, present only when the device has the kind (the
+        // page renders a control for each present option).
+        ...(Array.isArray(device.kinds) && device.kinds.includes('vibration') ? { vibrationAsMotion: vibrationAsMotionEnabled(entry) } : {}),
+        ...(Array.isArray(device.kinds) && device.kinds.includes('gas') ? { gasAlarm: gasAlarmMode(entry) ?? 'off' } : {}),
       };
     });
-  return { types: [...ACCESSORY_TYPES], untested: UNTESTED_KINDS, rows };
+  return { types: [...ACCESSORY_TYPES], gasAlarmModes: [...GAS_ALARM_MODES], untested: UNTESTED_KINDS, rows };
 }
 
 /**
@@ -77,8 +81,12 @@ export function applyView({ config, devices, selections } = {}) {
     if (sel?.type) entry.accessoryType = sel.type;
     // Power metering is configured in the schema form, not the table - carry it over.
     if (!powerMeteringEnabled(prior)) entry.powerMetering = false;
-    if (prior?.vibrationAsMotion === true) entry.vibrationAsMotion = true;
-    if (prior?.gasAlarm === 'smoke' || prior?.gasAlarm === 'co') entry.gasAlarm = prior.gasAlarm;
+    // Sensor options come from the table where the row has the kind; a row
+    // without the control (kinds not known yet) keeps the prior value.
+    const vibration = sel?.vibrationAsMotion ?? vibrationAsMotionEnabled(prior);
+    if (vibration === true) entry.vibrationAsMotion = true;
+    const gas = sel?.gasAlarm !== undefined ? gasAlarmMode({ gasAlarm: sel.gasAlarm }) : gasAlarmMode(prior);
+    if (gas !== undefined) entry.gasAlarm = gas;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
     if (sel?.split === false) entry.splitChannels = false;
