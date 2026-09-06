@@ -74,7 +74,7 @@
             },
             "vibrationAsMotion": {
               "title": "Vibration as motion sensor (Door/Window sensors)",
-              "description": "Expose the sensor's vibration (impact) detection as a motion sensor. Matter has no vibration sensor type, so Apple Home shows it as motion. Off by default.",
+              "description": "Expose the sensor's vibration (impact) detection as a motion sensor. Matter has no vibration sensor type, so Apple Home shows it as motion. Off by default. The detection itself is a device setting: enable vibration and raise \"Vibration sensitivity\" in the Shelly app (the factory default of 50 is often too low; 100 works).",
               "type": "boolean",
               "default": false
             },
