@@ -1,4 +1,5 @@
 import { promises as fs, readFileSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 
@@ -35,6 +36,17 @@ interface KnownDevice {
 
 const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
+
+/** The first external IPv4 address of the given interface, or of the first interface that has one. */
+function localIpv4(interfaceName?: string): string | undefined {
+  const all = networkInterfaces();
+  const names = interfaceName ? [interfaceName] : Object.keys(all);
+  for (const name of names) {
+    const address = all[name]?.find((entry) => entry.family === 'IPv4' && !entry.internal)?.address;
+    if (address) return address;
+  }
+  return undefined;
+}
 
 export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly matterAccessories = new Map<string, MatterAccessory>();
@@ -339,8 +351,17 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // the simplest transport for Gen 2+ battery devices. Opt-in: the device
     // detection in the protocol layer only runs while this server listens.
     if (this.config.rpcOverUdp === true) {
-      this.shelly.udpServer.start();
-      this.log.info('RPC over UDP enabled - devices configured with destination <homebridge-ip>:8585 report over UDP.');
+      // The protocol layer recognizes a device as UDP-configured by comparing
+      // its destination with THIS host's IPv4 (it is only set by mDNS
+      // discovery upstream, which may be off here).
+      const ipv4 = localIpv4(this.config.interfaceName as string | undefined);
+      if (ipv4 === undefined) {
+        this.log.warn('RPC over UDP enabled, but no external IPv4 address was found on this host - devices cannot be matched to it; leaving UDP off.');
+      } else {
+        this.shelly.ipv4Address = ipv4;
+        this.shelly.udpServer.start();
+        this.log.info(`RPC over UDP enabled - devices configured with destination ${ipv4}:8585 (listening port 8585) report over UDP.`);
+      }
     }
 
     for (const entry of deviceConfigs(this.config)) {
