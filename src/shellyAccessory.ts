@@ -41,6 +41,14 @@ const OPERATIONAL_STATUS: Record<string, { global: number; lift: number }> = {
   closing: { global: 2, lift: 2 },
 };
 const OPERATIONAL_STOPPED = { global: 0, lift: 0 };
+/**
+ * WindowCovering ConfigStatus for a position-aware lift: Homebridge composes
+ * the cluster's Lift feature from the position attributes but adds
+ * PositionAwareLift ONLY when `configStatus.liftPositionAware` is declared -
+ * without it matter.js rejects the position attributes ("LF & PA_LF") and
+ * the registration fails (#11).
+ */
+const LIFT_CONFIG_STATUS = { operational: true, onlineReserved: false, liftMovementReversed: false, liftPositionAware: true, tiltPositionAware: false, liftEncoderControlled: false, tiltEncoderControlled: false };
 
 // Shelly brightness is 1-100; Matter LevelControl (Lighting) levels are 1-254.
 const levelFromBrightness = (brightness: number): number => Math.max(1, Math.round((brightness * 254) / 100));
@@ -287,7 +295,7 @@ function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: 
   const clusters: Record<string, ClusterState> = primary
     ? { [primary[0]]: { ...primary[1] } }
     : kind === 'cover'
-      ? { windowCovering: { currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } }
+      ? { windowCovering: { configStatus: LIFT_CONFIG_STATUS, currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } }
       : { onOff: { onOff: false } };
   if (kind === 'dimmer') clusters.levelControl = { currentLevel: 254 };
   applySnapshot(clusters, component, kind, metering);

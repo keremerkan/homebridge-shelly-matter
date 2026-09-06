@@ -395,8 +395,16 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       } catch (error) {
         // Homebridge >= 2.2.2 rejects registrations that arrive before the
         // Matter server is running (previously they were silently dropped) -
-        // treat it like a failed verification and keep retrying.
-        this.log.debug(`Registration of ${label} rejected (${getErrorMessage(error)}) - retrying.`);
+        // treat it like a failed verification and keep retrying. Any OTHER
+        // rejection (invalid cluster state, ...) is final: Homebridge keeps
+        // the half-built endpoint, so a retry only adds identity-conflict
+        // noise on top of the real cause (#11).
+        const message = getErrorMessage(error);
+        if (!/not (started|ready|running)/i.test(message)) {
+          this.log.error(`Could not register ${label}: ${message}`);
+          return false;
+        }
+        this.log.debug(`Registration of ${label} rejected (${message}) - retrying.`);
       }
       // On child bridges registration is dispatched through an event and
       // completes asynchronously - poll for a while before assuming it was
