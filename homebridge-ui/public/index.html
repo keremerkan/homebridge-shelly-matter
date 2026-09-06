@@ -160,7 +160,7 @@
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>
           ${row.channelTypes.map((_, i) =>
-            `<tr><td>channel ${i + 1}</td><td><input type="text" class="form-control form-control-sm" data-channel-name="${escapeAttr(device.id)}:${i}" value="${escapeAttr(row.channelNames[i])}" placeholder="(used when split)" title="Channel name, shown in the Home app only when the device is split into separate accessories. Grouped devices always use the device name plus the channel number."></td><td>${typeCellHtml(row, i)}</td><td></td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
+            `<tr><td>ch ${i + 1}</td><td><input type="text" class="form-control form-control-sm" data-channel-name="${escapeAttr(device.id)}:${i}" value="${escapeAttr(row.channelNames[i])}" placeholder="(used when split)" title="Channel name, shown in the Home app only when the device is split into separate accessories. Grouped devices always use the device name plus the channel number."></td><td>${typeCellHtml(row, i)}</td><td></td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,
           ).join('')}
         `);
       }
