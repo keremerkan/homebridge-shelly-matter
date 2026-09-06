@@ -9,15 +9,16 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
  * fixed Matter device type. Shared with the settings UI so its table and the
  * platform classify channels identically.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'smoke' | 'gas' | 'meter';
-
-/** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
 export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration', 'smoke', 'gas'] as const;
+/** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
+export type SensorKind = (typeof SENSOR_KINDS)[number];
+export const COMPONENT_KINDS = ['switch', 'cover', 'dimmer', ...SENSOR_KINDS, 'meter'] as const;
+export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
 /** How a gas detector's alarm is exposed - Matter has no gas detector type, so the user picks the alarm it appears as. */
 export const GAS_ALARM_MODES = ['smoke', 'co'] as const;
 export type GasAlarmMode = (typeof GAS_ALARM_MODES)[number];
-export const isSensorKind = (kind: string): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
+export const isSensorKind = (kind: string): kind is SensorKind => (SENSOR_KINDS as readonly string[]).includes(kind);
 
 /** Kinds whose channels may split into separate accessories (sensors and meters never do). */
 export const isSplittableKind = (kind: string): boolean => kind === 'switch' || kind === 'cover' || kind === 'dimmer';
@@ -88,12 +89,14 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
 export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: number, hiddenByDefault = false): boolean =>
   channelConfig(entry, channel)?.hidden ?? hiddenByDefault;
 
+/** The device (entry) is hidden from Matter altogether. */
+export const deviceHidden = (entry: ShellyDeviceConfig | undefined): boolean => entry?.hidden === true;
+
 /** Power metering is on unless the entry switches it off. */
 export const powerMeteringEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.powerMetering !== false;
 
 /** The alarm a gas detector is exposed as, or undefined when the entry has not opted in. */
-export const gasAlarmMode = (entry: ShellyDeviceConfig | undefined): GasAlarmMode | undefined =>
-  (GAS_ALARM_MODES as readonly string[]).includes(entry?.gasAlarm ?? '') ? (entry?.gasAlarm as GasAlarmMode) : undefined;
+export const gasAlarmMode = (entry: ShellyDeviceConfig | undefined): GasAlarmMode | undefined => GAS_ALARM_MODES.find((mode) => mode === entry?.gasAlarm);
 
 /** Vibration exposed as a motion sensor only when the entry opts in. */
 export const vibrationAsMotionEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.vibrationAsMotion === true;

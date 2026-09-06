@@ -3,24 +3,25 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { ACCESSORY_TYPES, type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
+import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
 import type { ShellyData, ShellyDataType } from './shelly/shellyTypes.js';
-import { isValidNumber, isValidObject } from './shelly/utils/index.js';
+import { deepEqual, isValidNumber, isValidObject } from './shelly/utils/index.js';
 
-export type { ComponentKind } from './deviceConfig.js';
-
-/** A part's identity token: the accessory type for switches, the kind otherwise. */
 /** A gas detector's part token names the alarm it is shown as ('smokealarm' | 'coalarm'), distinct from a real smoke sensor's 'smoke'. */
 type GasToken = `${GasAlarmMode}alarm`;
 const gasTokenOf = (mode: GasAlarmMode): GasToken => `${mode}alarm`;
-const gasModeOf = (token: PartToken | undefined): GasAlarmMode | undefined => (GAS_ALARM_MODES as readonly string[]).find((mode) => token === `${mode}alarm`) as GasAlarmMode | undefined;
-type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'smoke' | GasToken | 'meter';
+/**
+ * A part's identity token: the accessory type for switches, the chosen alarm
+ * for gas detectors, the kind for everything else. Tokens are embedded in
+ * part ids and identity seeds - never rename one.
+ */
+type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasToken;
 
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
-const SENSOR_PART_LABEL: Record<string, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
+const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
 
 /** The triphase total channel (em:0 only exists on three-phase meters): hidden by default, the phases already sum to it. */
 const isTriphaseTotal = (componentId: string): boolean => componentId === 'em:0';
@@ -36,7 +37,7 @@ const ENERGY_PUSH_MIN_INTERVAL_MS = 30_000;
  * in Matter before the plugin clears it. Every new report restarts the hold;
  * impacts inside the window merge into one detection.
  */
-const VIBRATION_HOLD_MS = 10_000;
+const MOMENTARY_HOLD_MS = 10_000;
 
 type ClusterState = Record<string, unknown>;
 
@@ -103,18 +104,31 @@ const energyFragment = (direction: 'Imported' | 'Exported') => (v: ShellyDataTyp
  * the same property name can map differently per kind (a switch's `state` is
  * a boolean, a cover's is a movement string).
  */
-const PROPERTY_MAP: {
+interface PropertyRow {
   property: string;
   cluster: string;
   /** The source component is passed so a row can pick unit math per component family (Gen 1 meter vs emeter). */
   convert: (value: ShellyDataType, component?: ShellyComponent) => ClusterState | undefined;
+  /** The kinds this row applies to (unset = all); rows whose shape depends on the part token use `tokens` instead. */
   kinds?: ComponentKind[];
+  tokens?: PartToken[];
   /** Only forwarded when the device's power metering is enabled. */
   metered?: boolean;
   throttled?: boolean;
-  /** A pulse, not a state: never part of a snapshot, and cleared again VIBRATION_HOLD_MS after it fires (the sensor sleeps right after reporting it, so no "0" follows). */
+  /** A pulse, not a state: never part of a snapshot, and cleared back to the part's rest state MOMENTARY_HOLD_MS after it fires (the sensor sleeps right after reporting it, so no "0" follows). */
   momentary?: boolean;
-}[] = [
+}
+
+const smokeFragment = (v: ShellyDataType): ClusterState | undefined => (typeof v === 'boolean' ? { smokeState: v ? 2 : 0, expressedState: v ? 1 : 0 } : undefined);
+// Gas detectors: Matter has no gas detector type, so the alarm is exposed as
+// the user's choice of smoke or CO alarm (the part token). Shelly reports
+// none/mild/heavy/test; Matter's AlarmState is Normal/Warning/Critical and
+// ExpressedState names the alarm (1 smoke, 2 CO, 4 testing).
+const gasLevel = (v: ShellyDataType): number => (v === 'heavy' ? 2 : v === 'mild' ? 1 : 0);
+const gasAlarmFragment = (mode: GasAlarmMode) => (v: ShellyDataType): ClusterState | undefined =>
+  (typeof v === 'string' ? { [mode === 'co' ? 'coState' : 'smokeState']: gasLevel(v), expressedState: v === 'test' ? 4 : gasLevel(v) ? (mode === 'co' ? 2 : 1) : 0, testInProgress: v === 'test' } : undefined);
+
+const PROPERTY_MAP: PropertyRow[] = [
   { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer'] },
   { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer'] },
   { property: 'current_pos', cluster: 'windowCovering', convert: (v) => (isValidNumber(v, 0, 100) ? { currentPositionLiftPercent100ths: liftFromPosition(v) } : undefined), kinds: ['cover'] },
@@ -139,8 +153,10 @@ const PROPERTY_MAP: {
   // as a boolean (HTTP status) or 0/1 (CoIoT).
   { property: 'vibration', cluster: 'occupancySensing', convert: (v) => (typeof v === 'boolean' || typeof v === 'number' ? { occupancy: { occupied: v === true || v === 1 } } : undefined), kinds: ['vibration'], momentary: true },
   // Smoke sensors: Gen 2+ report smoke:N.alarm, Gen 1 a bare smoke flag. Matter AlarmState Critical (2) while alarming.
-  { property: 'alarm', cluster: 'smokeCoAlarm', convert: (v) => (typeof v === 'boolean' ? { smokeState: v ? 2 : 0, expressedState: v ? 1 : 0 } : undefined), kinds: ['smoke'] },
-  { property: 'smoke', cluster: 'smokeCoAlarm', convert: (v) => (typeof v === 'boolean' ? { smokeState: v ? 2 : 0, expressedState: v ? 1 : 0 } : undefined), kinds: ['smoke'] },
+  { property: 'alarm', cluster: 'smokeCoAlarm', convert: smokeFragment, kinds: ['smoke'] },
+  { property: 'smoke', cluster: 'smokeCoAlarm', convert: smokeFragment, kinds: ['smoke'] },
+  ...GAS_ALARM_MODES.map((mode): PropertyRow => ({ property: 'alarm_state', cluster: 'smokeCoAlarm', convert: gasAlarmFragment(mode), tokens: [gasTokenOf(mode)] })),
+  { property: 'sensor_state', cluster: 'smokeCoAlarm', convert: (v) => (typeof v === 'string' ? { hardwareFaultAlert: v === 'fault' } : undefined), kinds: ['gas'] },
   // Meter (PowerMeter) components: em1/em/pm1 report plain W/V/A/Wh; the
   // vendored layer folds the em1data/emdata energy counters into the same
   // component. powerFactor is hundredths of a percent, frequency is mHz.
@@ -158,49 +174,6 @@ const PROPERTY_MAP: {
   { property: 'total', cluster: 'electricalEnergyMeasurement', convert: (v, c) => (isValidNumber(v, 0) ? { cumulativeEnergyImported: { energy: c?.id.startsWith('emeter:') ? milli(v) : Math.round((v * 1000) / 60) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
   { property: 'total_returned', cluster: 'electricalEnergyMeasurement', convert: (v) => (isValidNumber(v, 0) ? { cumulativeEnergyExported: { energy: milli(v) } } : undefined), kinds: ['meter'], metered: true, throttled: true },
 ];
-
-/** Per-kind property lookup, so a kind only ever sees its own rows. */
-const PROPERTY_MAPS: Record<ComponentKind, Map<string, (typeof PROPERTY_MAP)[number]>> = {
-  switch: new Map(),
-  cover: new Map(),
-  dimmer: new Map(),
-  temperature: new Map(),
-  humidity: new Map(),
-  flood: new Map(),
-  contact: new Map(),
-  illuminance: new Map(),
-  vibration: new Map(),
-  smoke: new Map(),
-  gas: new Map(), // rows live in GAS_PROPERTY_MAPS, keyed by the chosen alarm
-  meter: new Map(),
-};
-for (const entry of PROPERTY_MAP) {
-  for (const kind of entry.kinds ?? (Object.keys(PROPERTY_MAPS) as ComponentKind[])) {
-    PROPERTY_MAPS[kind].set(entry.property, entry);
-  }
-}
-
-// Gas detectors: Matter has no gas detector type, so the alarm is exposed as
-// the user's choice of smoke or CO alarm (the part token). Shelly reports
-// none/mild/heavy/test; Matter's AlarmState is Normal/Warning/Critical and
-// ExpressedState names the alarm (1 smoke, 2 CO, 4 testing).
-const gasLevel = (v: ShellyDataType): number => (v === 'heavy' ? 2 : v === 'mild' ? 1 : 0);
-const gasRows = (mode: GasAlarmMode): (typeof PROPERTY_MAP)[number][] => [
-  {
-    property: 'alarm_state',
-    cluster: 'smokeCoAlarm',
-    convert: (v) => (typeof v === 'string' ? { [mode === 'co' ? 'coState' : 'smokeState']: gasLevel(v), expressedState: v === 'test' ? 4 : gasLevel(v) ? (mode === 'co' ? 2 : 1) : 0, testInProgress: v === 'test' } : undefined),
-  },
-  { property: 'sensor_state', cluster: 'smokeCoAlarm', convert: (v) => (typeof v === 'string' ? { hardwareFaultAlert: v === 'fault' } : undefined) },
-];
-const GAS_PROPERTY_MAPS: Record<GasAlarmMode, Map<string, (typeof PROPERTY_MAP)[number]>> = Object.fromEntries(
-  GAS_ALARM_MODES.map((mode) => [mode, new Map(gasRows(mode).map((entry) => [entry.property, entry]))]),
-) as Record<GasAlarmMode, Map<string, (typeof PROPERTY_MAP)[number]>>;
-/** The property rows for a part: by kind, except gas detectors whose rows follow the chosen alarm (token). */
-const propertyMapFor = (kind: ComponentKind, token?: PartToken): Map<string, (typeof PROPERTY_MAP)[number]> => {
-  const mode = kind === 'gas' ? gasModeOf(token) : undefined;
-  return mode ? GAS_PROPERTY_MAPS[mode] : PROPERTY_MAPS[kind];
-};
 
 /**
  * Part ids must avoid ':' and embed the identity token: a type change then
@@ -231,8 +204,8 @@ const powerSourceClusterFor = (battery: ShellyComponent): ClusterState => ({
 });
 
 /** Applies a component's current property values (per its kind's map) onto a cluster snapshot. */
-function applySnapshot(clusters: Record<string, ClusterState>, component: ShellyComponent, kind: ComponentKind, metering: boolean, token?: PartToken): Record<string, ClusterState> {
-  for (const entry of propertyMapFor(kind, token).values()) {
+function applySnapshot(clusters: Record<string, ClusterState>, component: ShellyComponent, token: PartToken, metering: boolean): Record<string, ClusterState> {
+  for (const entry of PROPERTY_MAPS[token].values()) {
     if ((entry.metered && !metering) || entry.momentary || !component.hasProperty(entry.property)) continue;
     const fragment = entry.convert(component.getValue(entry.property), component);
     if (fragment === undefined) continue;
@@ -252,9 +225,12 @@ const METER_PHASES = ['Total', 'Phase A', 'Phase B', 'Phase C'];
 const meterPartLabel = (componentId: string, index: number): string =>
   (componentId.startsWith('em:') && index >= 0 && index < METER_PHASES.length ? METER_PHASES[index] : `Meter ${index + 1}`);
 
+/** The parent-level clusters of an accessory (the MatterAccessory type does not declare them). */
+const accessoryClusters = (accessory: MatterAccessory): Record<string, ClusterState> => (accessory as { clusters?: Record<string, ClusterState> }).clusters ?? {};
 /** The parent-level powerSource state of an accessory, if it carries one. */
-const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined =>
-  (accessory as { clusters?: Record<string, ClusterState> }).clusters?.powerSource;
+const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined => accessoryClusters(accessory).powerSource;
+/** The UUIDs of a list of accessories. */
+export const uuidsOf = (accessories: MatterAccessory[]): Set<string> => new Set(accessories.map((accessory) => accessory.UUID));
 
 interface MappedComponent {
   component: ShellyComponent;
@@ -264,6 +240,13 @@ interface MappedComponent {
   /** Triphase total channel (em:0): hidden by default, since the phases already sum to it. */
   total?: boolean;
 }
+
+/**
+ * Sensor kind by the protocol layer's component NAME (live path). The layer
+ * always names a sensor component by its lowercased id, so the cache path's
+ * id-prefix table (KIND_BY_COMPONENT_PREFIX) is derived from this one.
+ */
+const SENSOR_KIND_BY_NAME: Record<string, SensorKind> = { Temperature: 'temperature', Humidity: 'humidity', Flood: 'flood', Sensor: 'contact', Lux: 'illuminance', Vibration: 'vibration', Smoke: 'smoke', Gas: 'gas' };
 
 /** The components this plugin can expose, in device order. */
 export function mappedComponents(device: ShellyDevice): MappedComponent[] {
@@ -303,14 +286,9 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
   // parts (and rotate identities). A device with meters is never empty here.
   if (mapped.length === 0) {
     for (const [, component] of device) {
-      if (component.name === 'Temperature') mapped.push({ component, kind: 'temperature' });
-      else if (component.name === 'Humidity') mapped.push({ component, kind: 'humidity' });
-      else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
-      else if (component.name === 'Sensor' && component.hasProperty('contact_open')) mapped.push({ component, kind: 'contact' });
-      else if (component.name === 'Lux') mapped.push({ component, kind: 'illuminance' });
-      else if (component.name === 'Vibration') mapped.push({ component, kind: 'vibration' });
-      else if (component.name === 'Smoke') mapped.push({ component, kind: 'smoke' });
-      else if (component.name === 'Gas') mapped.push({ component, kind: 'gas' });
+      const kind = SENSOR_KIND_BY_NAME[component.name];
+      // The Door/Window magnet lives on the generic 'Sensor' component; other devices' 'Sensor' components carry nothing we map.
+      if (kind !== undefined && (kind !== 'contact' || component.hasProperty('contact_open'))) mapped.push({ component, kind });
     }
   }
   return mapped;
@@ -320,58 +298,63 @@ function meteringEnabled(platform: ShellyMatterPlatform, device: ShellyDevice): 
   return powerMeteringEnabled(configForDevice(platform.config, device.id, platform.configHost(device)));
 }
 
-const DEVICE_TYPE_BY_TOKEN: Record<PartToken, keyof ShellyMatterPlatform['matter']['deviceTypes']> = {
-  temperature: 'TemperatureSensor',
-  humidity: 'HumiditySensor',
-  flood: 'LeakSensor',
-  contact: 'ContactSensor',
-  illuminance: 'LightSensor',
-  vibration: 'MotionSensor',
-  smoke: 'SmokeSensor',
-  smokealarm: 'SmokeSensor',
-  coalarm: 'SmokeSensor',
-  meter: 'ElectricalSensor',
-  cover: 'WindowCovering',
-  dimmer: 'DimmableLight',
-  switch: 'OnOffSwitch',
-  light: 'OnOffLight',
-  outlet: 'OnOffOutlet',
-};
-const matterDeviceTypeFor = (platform: ShellyMatterPlatform, token: PartToken) => platform.matter.deviceTypes[DEVICE_TYPE_BY_TOKEN[token]];
-
-/** Initial cluster state for one component, with electrical clusters when the component meters. */
 /**
- * The primary cluster per read-only kind - it must always exist (it is the
- * registration-verify probe and carries the mandatory attributes).
+ * THE per-token part table: the kind a token belongs to, its Matter device
+ * type, and its clusters at rest. The FIRST cluster is the primary one - it
+ * must always exist (it is the registration-verify probe and carries the
+ * mandatory attributes); the rest state doubles as the value a momentary
+ * event is cleared back to. Every token-dependent shape (a gas detector shown
+ * as smoke vs CO alarm) is just another row here.
  */
-const PRIMARY_CLUSTER: Record<string, [cluster: string, attributes: ClusterState]> = {
-  temperature: ['temperatureMeasurement', { measuredValue: null }],
-  humidity: ['relativeHumidityMeasurement', { measuredValue: null }],
-  flood: ['booleanState', { stateValue: false }],
-  contact: ['booleanState', { stateValue: true }],
-  illuminance: ['illuminanceMeasurement', { measuredValue: null }],
-  vibration: ['occupancySensing', { occupancy: { occupied: false } }],
-  smoke: ['smokeCoAlarm', { smokeState: 0, expressedState: 0, testInProgress: false }],
-  meter: ['electricalPowerMeasurement', { activePower: 0 }],
+interface PartShape {
+  kind: ComponentKind;
+  deviceType: keyof ShellyMatterPlatform['matter']['deviceTypes'];
+  clusters: Record<string, ClusterState>;
+}
+const ON_OFF_AT_REST: ClusterState = { onOff: false };
+const smokeCoAtRest = (state: 'smokeState' | 'coState'): ClusterState => ({ [state]: 0, expressedState: 0, testInProgress: false });
+const PART_SHAPES: Record<PartToken, PartShape> = {
+  light: { kind: 'switch', deviceType: 'OnOffLight', clusters: { onOff: ON_OFF_AT_REST } },
+  outlet: { kind: 'switch', deviceType: 'OnOffOutlet', clusters: { onOff: ON_OFF_AT_REST } },
+  switch: { kind: 'switch', deviceType: 'OnOffSwitch', clusters: { onOff: ON_OFF_AT_REST } },
+  cover: {
+    kind: 'cover',
+    deviceType: 'WindowCovering',
+    clusters: { windowCovering: { configStatus: LIFT_CONFIG_STATUS, currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } },
+  },
+  dimmer: { kind: 'dimmer', deviceType: 'DimmableLight', clusters: { onOff: ON_OFF_AT_REST, levelControl: { currentLevel: 254 } } },
+  temperature: { kind: 'temperature', deviceType: 'TemperatureSensor', clusters: { temperatureMeasurement: { measuredValue: null } } },
+  humidity: { kind: 'humidity', deviceType: 'HumiditySensor', clusters: { relativeHumidityMeasurement: { measuredValue: null } } },
+  flood: { kind: 'flood', deviceType: 'LeakSensor', clusters: { booleanState: { stateValue: false } } },
+  contact: { kind: 'contact', deviceType: 'ContactSensor', clusters: { booleanState: { stateValue: true } } },
+  illuminance: { kind: 'illuminance', deviceType: 'LightSensor', clusters: { illuminanceMeasurement: { measuredValue: null } } },
+  vibration: { kind: 'vibration', deviceType: 'MotionSensor', clusters: { occupancySensing: { occupancy: { occupied: false } } } },
+  smoke: { kind: 'smoke', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
+  smokealarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
+  coalarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('coState') } },
+  meter: { kind: 'meter', deviceType: 'ElectricalSensor', clusters: { electricalPowerMeasurement: { activePower: 0 } } },
 };
+const PART_TOKENS = Object.keys(PART_SHAPES) as PartToken[];
+/** The component kind a part identity token belongs to (unknown tokens from foreign caches read as switches). */
+const kindOfToken = (token: PartToken): ComponentKind => PART_SHAPES[token]?.kind ?? 'switch';
+const matterDeviceTypeFor = (platform: ShellyMatterPlatform, token: PartToken) => platform.matter.deviceTypes[PART_SHAPES[token].deviceType];
+/** A fresh copy of a token's clusters at rest (the table's objects are shared and must not be mutated). */
+const clustersAtRest = (token: PartToken): Record<string, ClusterState> =>
+  Object.fromEntries(Object.entries(PART_SHAPES[token].clusters).map(([cluster, attributes]) => [cluster, structuredClone(attributes)]));
 
-/** A gas detector's primary cluster: the chosen alarm feature at rest (Homebridge composes the feature from the declared state attribute). */
-const gasPrimaryClusters = (mode: GasAlarmMode): Record<string, ClusterState> => ({ smokeCoAlarm: { [mode === 'co' ? 'coState' : 'smokeState']: 0, expressedState: 0, testInProgress: false } });
+/** Per-token property lookup, so a part only ever sees its own rows. */
+const PROPERTY_MAPS = Object.fromEntries(PART_TOKENS.map((token) => [token, new Map<string, PropertyRow>()])) as Record<PartToken, Map<string, PropertyRow>>;
+for (const row of PROPERTY_MAP) {
+  const tokens = row.tokens ?? PART_TOKENS.filter((token) => !row.kinds || row.kinds.includes(PART_SHAPES[token].kind));
+  for (const token of tokens) PROPERTY_MAPS[token].set(row.property, row);
+}
 
-function clustersFor(component: ShellyComponent, kind: ComponentKind, metering: boolean, token?: PartToken): Record<string, ClusterState> {
-  // Seed the primary cluster and let the map's own rows overwrite when the device reports.
-  const primary = PRIMARY_CLUSTER[kind];
-  const clusters: Record<string, ClusterState> = kind === 'gas'
-    ? gasPrimaryClusters(gasModeOf(token) ?? 'smoke')
-    : primary
-      ? { [primary[0]]: { ...primary[1] } }
-      : kind === 'cover'
-        ? { windowCovering: { configStatus: LIFT_CONFIG_STATUS, currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } }
-        : { onOff: { onOff: false } };
-  if (kind === 'dimmer') clusters.levelControl = { currentLevel: 254 };
-  applySnapshot(clusters, component, kind, metering, token);
+function clustersFor(component: ShellyComponent, token: PartToken, metering: boolean): Record<string, ClusterState> {
+  // Seed the clusters at rest and let the map's own rows overwrite when the device reports.
+  const clusters = clustersAtRest(token);
+  applySnapshot(clusters, component, token, metering);
   // A cover that is not moving should target where it is.
-  if (kind === 'cover') clusters.windowCovering.targetPositionLiftPercent100ths = clusters.windowCovering.currentPositionLiftPercent100ths;
+  if (PART_SHAPES[token].kind === 'cover') clusters.windowCovering.targetPositionLiftPercent100ths = clusters.windowCovering.currentPositionLiftPercent100ths;
   return clusters;
 }
 
@@ -453,9 +436,6 @@ interface ShellyAccessoryContext {
 
 /** The seed suffix for a rotation generation (empty for generation 0 - legacy identities stay stable). */
 const generationSuffix = (generation: number): string => (generation > 0 ? `|g${generation}` : '');
-
-/** The component kind a part identity token belongs to. */
-const kindOfToken = (token: PartToken): ComponentKind => ((ACCESSORY_TYPES as readonly string[]).includes(token) ? 'switch' : gasModeOf(token) ? 'gas' : (token as ComponentKind));
 
 /**
  * A component as the composition engine sees it - built from a live device
@@ -576,8 +556,7 @@ function composeAccessories(
   const actuatorCount = typed.filter(({ kind }) => isSplittableKind(kind)).length;
   const channelName = ({ componentId, index, kind }: Composable): string => {
     if (kind === 'meter') return `${displayName} ${meterPartLabel(componentId, index)}`;
-    const label = SENSOR_PART_LABEL[kind];
-    if (label !== undefined) return `${displayName} ${label}`;
+    if (isSensorKind(kind)) return `${displayName} ${SENSOR_PART_LABEL[kind]}`;
     return actuatorCount <= 1 ? displayName : `${displayName} ${index + 1}`;
   };
 
@@ -606,7 +585,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
     meterId: meter?.id,
     // A merged meter contributes its electrical clusters to the actuator's
     // own endpoint - the shape controllers (Apple Home included) support.
-    clustersFor: (token) => ({ ...clustersFor(component, kind, metering, token), ...(meter ? meterClustersFor(meter, metering) : {}) }),
+    clustersFor: (token) => ({ ...clustersFor(component, token, metering), ...(meter ? meterClustersFor(meter, metering) : {}) }),
   }));
   // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
   // cluster - the core composes the Battery feature from these attributes.
@@ -629,14 +608,7 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   cover: 'cover',
   roller: 'cover',
   light: 'dimmer',
-  temperature: 'temperature',
-  humidity: 'humidity',
-  flood: 'flood',
-  sensor: 'contact',
-  lux: 'illuminance',
-  vibration: 'vibration',
-  smoke: 'smoke',
-  gas: 'gas',
+  ...Object.fromEntries(Object.entries(SENSOR_KIND_BY_NAME).map(([name, kind]) => [name.toLowerCase(), kind])),
   em1: 'meter',
   em: 'meter',
   pm1: 'meter',
@@ -709,19 +681,14 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       if (!match || !kind) continue;
       const index = match[2] !== undefined ? Number(match[2]) : -1;
       if (!metering && ('electricalPowerMeasurement' in part.clusters || 'electricalEnergyMeasurement' in part.clusters)) stripped = true;
-      // The carried snapshot keeps the registered shape; a gas alarm's shape
-      // follows the chosen mode (token), so it is rebuilt from that instead.
+      // The carried snapshot keeps the registered shape (metering-filtered);
+      // it is only reused for a token whose clusters at rest match the
+      // registered token's (a retyped switch keeps them, a gas alarm switched
+      // from smoke to CO does not).
       const carried = clustersForMetering(part.clusters, metering);
-      components.set(componentId, {
-        componentId,
-        index,
-        kind,
-        meterId: context.partMeters?.[part.id],
-        clustersFor: (token) => {
-          const mode = kind === 'gas' ? gasModeOf(token) : undefined;
-          return mode ? gasPrimaryClusters(mode) : carried;
-        },
-      });
+      const registeredToken = context.partTypes[part.id] as PartToken | undefined;
+      const sameShape = (token: PartToken): boolean => registeredToken !== undefined && deepEqual(PART_SHAPES[token]?.clusters, PART_SHAPES[registeredToken]?.clusters);
+      components.set(componentId, { componentId, index, kind, meterId: context.partMeters?.[part.id], clustersFor: (token) => (sameShape(token) ? carried : clustersAtRest(token)) });
     }
   }
   if (!template || components.size === 0) return undefined;
@@ -744,7 +711,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
 
   const atCachedGeneration = buildAt(cachedGeneration);
   if (atCachedGeneration.length === 0) return { shells: [], generation: cachedGeneration };
-  const cachedUuids = new Set(cachedList.map((cached) => cached.UUID));
+  const cachedUuids = uuidsOf(cachedList);
   const unchanged = !stripped && atCachedGeneration.length === cachedUuids.size && atCachedGeneration.every((expected) => cachedUuids.has(expected.UUID));
   // A composition change rebuilds one generation up so the rotation lands on
   // a NEVER previously used identity (a revert would otherwise resurrect
@@ -760,7 +727,7 @@ function signatureOf(accessory: MatterAccessory) {
   return {
     name: accessory.displayName,
     firmware: accessory.firmwareRevision,
-    clusters: Object.keys((accessory as { clusters?: Record<string, ClusterState> }).clusters ?? {}).sort(),
+    clusters: Object.keys(accessoryClusters(accessory)).sort(),
     parts: (accessory.parts ?? []).map((part) => ({
       id: part.id,
       name: part.displayName,
@@ -834,7 +801,7 @@ export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyD
         if (declared.has(cluster)) void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
       }
     };
-    push(clustersFor(component, kind, metering, token));
+    push(clustersFor(component, token, metering));
     if (meter) push(meterClustersFor(meter, metering));
   }
   // Battery lives on the composed parent, not on a part.
@@ -868,8 +835,8 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
     pending.set(key, { partId, cluster, state: { ...fragment } });
   };
 
-  for (const { partId, component, kind, token, meter, declared } of accessoryParts(device, accessory)) {
-    const forward = (source: ShellyComponent, propertyMap: (typeof PROPERTY_MAPS)[ComponentKind]) => {
+  for (const { partId, component, token, meter, declared } of accessoryParts(device, accessory)) {
+    const forward = (source: ShellyComponent, propertyMap: Map<string, PropertyRow>) => {
       source.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
         const entry = propertyMap.get(property);
         if (!entry || (entry.metered && !metering) || !declared.has(entry.cluster)) return;
@@ -882,18 +849,18 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
         if (throttleKey !== undefined) lastEnergyPush.set(throttleKey, Date.now());
         queue(partId, entry.cluster, fragment);
         if (entry.momentary) {
-          // Re-arm the clear on every pulse; the "off" value is the converted
-          // inactive reading so the clearing fragment has the same shape.
+          // Re-arm the clear on every pulse; the part's cluster at rest is
+          // what it is cleared back to.
           const holdKey = `${partId}|${entry.property}`;
           clearTimeout(holdTimers.get(holdKey));
-          const off = entry.convert(false, source);
-          if (off !== undefined && JSON.stringify(off) !== JSON.stringify(fragment)) {
-            holdTimers.set(holdKey, setTimeout(() => { holdTimers.delete(holdKey); queue(partId, entry.cluster, off); }, VIBRATION_HOLD_MS));
+          const rest = PART_SHAPES[token].clusters[entry.cluster];
+          if (rest !== undefined && !deepEqual(rest, fragment)) {
+            holdTimers.set(holdKey, setTimeout(() => { holdTimers.delete(holdKey); queue(partId, entry.cluster, structuredClone(rest)); }, MOMENTARY_HOLD_MS));
           }
         }
       });
     };
-    forward(component, propertyMapFor(kind, token));
+    forward(component, PROPERTY_MAPS[token]);
     // A merged meter's updates land on the actuator's endpoint.
     if (meter) forward(meter, PROPERTY_MAPS.meter);
   }
