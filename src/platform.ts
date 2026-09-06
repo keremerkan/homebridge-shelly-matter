@@ -544,7 +544,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     const transport = entry.transport ?? existing?.transport;
     if (transport !== undefined) merged.transport = transport;
     else delete merged.transport;
-    const udpDestination = entry.udpDestination ?? existing?.udpDestination;
+    // null means "cleared on the device" and must replace an older value - so no `??` here.
+    const udpDestination = entry.udpDestination !== undefined ? entry.udpDestination : existing?.udpDestination;
     if (udpDestination !== undefined) merged.udpDestination = udpDestination;
     else delete merged.udpDestination;
     if (existing && deepEqual(existing, merged)) return;
