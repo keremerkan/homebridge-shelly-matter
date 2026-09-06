@@ -169,11 +169,11 @@
           <thead><tr><th>Device</th><th></th><th>Name</th><th>Accessory type</th><th title="Expose each channel as its own accessory so channels can be placed in different rooms.">Split</th><th>Hide</th></tr></thead>
           <tbody>${rows.join('')}</tbody>
         </table>
-        <p class="text-muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
-          <strong>Split</strong> (multi-channel devices): ticked, each channel is its own accessory and can be placed in its own room; unticked, the device is one accessory with a control per channel.
-          <strong>Hide</strong>: the device or channel is not exposed at all.
-          Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.
-        </p>`;
+        <ul class="text-muted list-unstyled" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
+          <li>&#9432; <strong>Split</strong> (multi-channel devices): ticked, each channel is its own accessory and can be placed in its own room; unticked, the device is one accessory with a control per channel.</li>
+          <li>&#9432; <strong>Hide</strong>: the device or channel is not exposed at all.</li>
+          <li>&#9432; Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.</li>
+        </ul>`;
       for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], select[data-gas]')) {
         el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
       }
