@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { ACCESSORY_TYPES, type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled } from './deviceConfig.js';
+import { ACCESSORY_TYPES, type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -13,10 +13,10 @@ import { isValidNumber, isValidObject } from './shelly/utils/index.js';
 export type { ComponentKind } from './deviceConfig.js';
 
 /** A part's identity token: the accessory type for switches, the kind otherwise. */
-type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'meter';
+type PartToken = AccessoryType | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'meter';
 
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
-const SENSOR_PART_LABEL: Record<string, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak' };
+const SENSOR_PART_LABEL: Record<string, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration' };
 
 /** The triphase total channel (em:0 only exists on three-phase meters): hidden by default, the phases already sum to it. */
 const isTriphaseTotal = (componentId: string): boolean => componentId === 'em:0';
@@ -117,6 +117,15 @@ const PROPERTY_MAP: {
   { property: 'tC', cluster: 'temperatureMeasurement', convert: (v) => (isValidNumber(v, -273, 350) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['temperature'] },
   { property: 'value', cluster: 'relativeHumidityMeasurement', convert: (v) => (isValidNumber(v, 0, 100) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['humidity'] },
   { property: 'flood', cluster: 'booleanState', convert: (v) => (typeof v === 'boolean' ? { stateValue: v } : undefined), kinds: ['flood'] },
+  // Door/Window: the protocol layer keeps the magnet state on the 'sensor'
+  // component as contact_open; Matter's ContactSensor is true when CLOSED.
+  { property: 'contact_open', cluster: 'booleanState', convert: (v) => (typeof v === 'boolean' ? { stateValue: !v } : undefined), kinds: ['contact'] },
+  // Matter encodes illuminance as 10000 * log10(lux) + 1 (0 = too dark to measure).
+  { property: 'value', cluster: 'illuminanceMeasurement', convert: (v) => (isValidNumber(v, 0) ? { measuredValue: v <= 0 ? 0 : Math.min(0xfffe, Math.round(10000 * Math.log10(v) + 1)) } : undefined), kinds: ['illuminance'] },
+  // Matter has no vibration sensor: an impact is exposed as an occupancy (motion)
+  // sensor, which controllers can alert and automate on (#10). Gen 1 reports it
+  // as a boolean (HTTP status) or 0/1 (CoIoT).
+  { property: 'vibration', cluster: 'occupancySensing', convert: (v) => (typeof v === 'boolean' || typeof v === 'number' ? { occupancy: { occupied: v === true || v === 1 } } : undefined), kinds: ['vibration'] },
   // Meter (PowerMeter) components: em1/em/pm1 report plain W/V/A/Wh; the
   // vendored layer folds the em1data/emdata energy counters into the same
   // component. powerFactor is hundredths of a percent, frequency is mHz.
@@ -143,6 +152,9 @@ const PROPERTY_MAPS: Record<ComponentKind, Map<string, (typeof PROPERTY_MAP)[num
   temperature: new Map(),
   humidity: new Map(),
   flood: new Map(),
+  contact: new Map(),
+  illuminance: new Map(),
+  vibration: new Map(),
   meter: new Map(),
 };
 for (const entry of PROPERTY_MAP) {
@@ -255,6 +267,9 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
       if (component.name === 'Temperature') mapped.push({ component, kind: 'temperature' });
       else if (component.name === 'Humidity') mapped.push({ component, kind: 'humidity' });
       else if (component.name === 'Flood') mapped.push({ component, kind: 'flood' });
+      else if (component.name === 'Sensor' && component.hasProperty('contact_open')) mapped.push({ component, kind: 'contact' });
+      else if (component.name === 'Lux') mapped.push({ component, kind: 'illuminance' });
+      else if (component.name === 'Vibration') mapped.push({ component, kind: 'vibration' });
     }
   }
   return mapped;
@@ -268,6 +283,9 @@ const DEVICE_TYPE_BY_TOKEN: Record<PartToken, keyof ShellyMatterPlatform['matter
   temperature: 'TemperatureSensor',
   humidity: 'HumiditySensor',
   flood: 'LeakSensor',
+  contact: 'ContactSensor',
+  illuminance: 'LightSensor',
+  vibration: 'MotionSensor',
   meter: 'ElectricalSensor',
   cover: 'WindowCovering',
   dimmer: 'DimmableLight',
@@ -286,6 +304,9 @@ const PRIMARY_CLUSTER: Record<string, [cluster: string, attributes: ClusterState
   temperature: ['temperatureMeasurement', { measuredValue: null }],
   humidity: ['relativeHumidityMeasurement', { measuredValue: null }],
   flood: ['booleanState', { stateValue: false }],
+  contact: ['booleanState', { stateValue: true }],
+  illuminance: ['illuminanceMeasurement', { measuredValue: null }],
+  vibration: ['occupancySensing', { occupancy: { occupied: false } }],
   meter: ['electricalPowerMeasurement', { activePower: 0 }],
 };
 
@@ -479,9 +500,10 @@ function composeAccessories(
 ): MatterAccessory[] {
   const entry = configForDevice(platform.config, deviceId, host);
   const metering = powerMeteringEnabled(entry);
+  const vibration = vibrationAsMotionEnabled(entry);
   const rank = (component: Composable): number => (isSplittableKind(component.kind) ? 0 : 1);
   const visible = all
-    .filter(({ componentId, index, kind }) => (kind !== 'meter' || metering) && !channelHidden(entry, index, isTriphaseTotal(componentId)))
+    .filter(({ componentId, index, kind }) => (kind !== 'meter' || metering) && (kind !== 'vibration' || vibration) && !channelHidden(entry, index, isTriphaseTotal(componentId)))
     // Canonical order - actuators first, then measurement parts, each by
     // index (stable sort) - so live builds and cache rebuilds seed the
     // same identity whatever order the components arrived in.
@@ -556,6 +578,9 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   temperature: 'temperature',
   humidity: 'humidity',
   flood: 'flood',
+  sensor: 'contact',
+  lux: 'illuminance',
+  vibration: 'vibration',
   em1: 'meter',
   em: 'meter',
   pm1: 'meter',

@@ -77,6 +77,9 @@ one confirmation moves it to tested.
   humidity, water leak, and battery level. Battery sensors sleep between reports, so readings
   update when the device wakes (periodically or on change), not continuously. Newer sensor
   generations (Plus H&T, H&T Gen3, Flood Gen4) are implemented but not hardware-confirmed.
+  The Shelly Door/Window 2 (contact, light level, temperature, battery; vibration as a
+  motion sensor with `vibrationAsMotion`) is mapped as of 0.9.0 and in field testing
+  ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)).
   Gen 1 sensor models report over CoIoT — the note below applies.
 
 ### Supported, not yet tested on real hardware
@@ -107,9 +110,9 @@ Matter mapping. [Open an issue](https://github.com/keremerkan/homebridge-shelly-
 if you own one and want it prioritized — we can usually provide a beta build to test:
 
 - RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
-- Sensors: Door/Window (contact), Motion, Smoke — including battery level
+- Sensors: Motion, Smoke, BLU sensors via a Shelly BLE gateway — including battery level
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
-- TRV / thermostats, and BLU devices via a Shelly BLE gateway
+- TRV / thermostats
 
 Not mappable to Matter: gas sensors (no Matter device type), vibration.
 
@@ -135,7 +138,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Covers / rollers (2.5 roller, Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyswitch25`, `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
 | Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
 | Newer H&T / Flood generations (Plus H&T, H&T Gen3, Flood Gen4) | `shellyplusht`, `shellyhtg3`, `shellyfloodg4` | temperature + humidity / water leak + battery | 🟡 |
-| Door/Window sensors | `shellydw2` … | contact + battery | ⏳ |
+| Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
+| Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
@@ -191,6 +195,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. A channel `name` is only used in the Home app when the device's channels are **split** into separate accessories (the default) — grouped devices always use the device `name` plus the channel number, and their tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `splitChannels` — multi-channel devices only, **on by default**: each channel is its own accessory, so channels can be assigned to different rooms (Apple Home assigns rooms per accessory — even "separate tiles" of one accessory always move rooms together). Set `false` to expose the device as one grouped accessory. Changing this re-creates the device's accessories with fresh identities — reassign rooms after.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
+- `vibrationAsMotion` — Door/Window sensors only: set `true` to expose the vibration (impact) detection as a motion sensor (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default).
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 

@@ -9,10 +9,10 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
  * fixed Matter device type. Shared with the settings UI so its table and the
  * platform classify channels identically.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'meter';
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'meter';
 
 /** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
-export const SENSOR_KINDS = ['temperature', 'humidity', 'flood'] as const;
+export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration'] as const;
 export const isSensorKind = (kind: string): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
 
 /** Kinds whose channels may split into separate accessories (sensors and meters never do). */
@@ -43,6 +43,12 @@ export interface ShellyDeviceConfig {
   accessoryType?: AccessoryType;
   hidden?: boolean;
   powerMetering?: boolean;
+  /**
+   * Door/Window sensors: expose the vibration (impact) detection as a motion
+   * sensor. Matter has no vibration sensor type, so this is a re-mapping the
+   * user opts into; OFF by default.
+   */
+  vibrationAsMotion?: boolean;
   /**
    * Multi-channel devices only: expose each channel as its own accessory
    * (assignable to its own room). ON by default - set false to expose the
@@ -78,6 +84,9 @@ export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: nu
 
 /** Power metering is on unless the entry switches it off. */
 export const powerMeteringEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.powerMetering !== false;
+
+/** Vibration exposed as a motion sensor only when the entry opts in. */
+export const vibrationAsMotionEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.vibrationAsMotion === true;
 
 /**
  * Default presentation: plugs are outlets, wired relay devices usually drive

@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.1] - 2026-09-03
+## [0.9.0] - 2026-09-06
+
+### Added
+
+- **Shelly Door/Window 2** ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)): contact (open/closed), light level, temperature and battery. The vibration (impact) detection can be exposed as a motion sensor with the new per-device `vibrationAsMotion` option (off by default: Matter has no vibration sensor type, so it is a deliberate re-mapping). The Door/Window 1 follows the same paths.
 
 ### Fixed
 

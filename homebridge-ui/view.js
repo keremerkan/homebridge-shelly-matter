@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, default
  */
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
-const UNTESTED_KINDS = ['cover'];
+const UNTESTED_KINDS = ['cover', 'contact', 'illuminance', 'vibration'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
@@ -77,6 +77,7 @@ export function applyView({ config, devices, selections } = {}) {
     if (sel?.type) entry.accessoryType = sel.type;
     // Power metering is configured in the schema form, not the table - carry it over.
     if (!powerMeteringEnabled(prior)) entry.powerMetering = false;
+    if (prior?.vibrationAsMotion === true) entry.vibrationAsMotion = true;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
     if (sel?.split === false) entry.splitChannels = false;

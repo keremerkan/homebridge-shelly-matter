@@ -72,6 +72,12 @@
               "type": "boolean",
               "default": true
             },
+            "vibrationAsMotion": {
+              "title": "Vibration as motion sensor (Door/Window sensors)",
+              "description": "Expose the sensor's vibration (impact) detection as a motion sensor. Matter has no vibration sensor type, so Apple Home shows it as motion. Off by default.",
+              "type": "boolean",
+              "default": false
+            },
             "splitChannels": {
               "title": "Split channels into separate accessories",
               "type": "boolean",

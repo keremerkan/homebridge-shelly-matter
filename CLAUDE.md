@@ -54,7 +54,7 @@ the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
 `accessoryType` applies to switch components only — every other kind is fixed
 (`ComponentKind` in deviceConfig.ts: switch/cover/dimmer plus the read-only
-temperature/humidity/flood/meter; the kind predicates, `channelHidden`,
+temperature/humidity/flood/contact/illuminance/vibration/meter; the kind predicates, `channelHidden`,
 `powerMeteringEnabled` and `resolveAccessoryType` live there too so the
 settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
 no type choice; a meter with a same-index actuator merges onto that endpoint
