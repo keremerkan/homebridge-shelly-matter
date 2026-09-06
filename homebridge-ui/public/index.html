@@ -112,6 +112,24 @@
       return `${labels}${badge}${options.length ? '<br>' + options.join(' &nbsp; ') : ''}`;
     }
 
+    /** Which transport the device reports over, with a hint when its RPC-over-UDP setting and the plugin option disagree. */
+    function transportHtml(device) {
+      if (!device.transport) return '';
+      const names = { coiot: 'CoIoT', websocket: 'WebSocket', udp: 'RPC over UDP' };
+      const parts = [names[device.transport] ?? device.transport];
+      if (device.sleeping) parts.push('sleeps between reports');
+      const udpOn = config.rpcOverUdp === true;
+      if (device.transport === 'websocket' && device.udpDestination) {
+        parts.push(udpOn
+          ? `<span class="text-warning">device sends UDP to ${escapeAttr(device.udpDestination)}, which is not this host - fix the device setting or it will use WebSocket</span>`
+          : `<span class="text-warning">device is configured for RPC over UDP (${escapeAttr(device.udpDestination)}) but the plugin option is off</span>`);
+      }
+      if (device.transport === 'websocket' && !device.udpDestination && udpOn && device.sleeping) {
+        parts.push('<span class="text-warning">battery device: configure RPC over UDP on it to receive its reports</span>');
+      }
+      return parts.join(' · ');
+    }
+
     function nameInputHtml(row) {
       return `<input type="text" class="form-control form-control-sm" data-name-entry="${escapeAttr(row.id)}" value="${escapeAttr(row.name)}" placeholder="e.g. Office Ceiling">`;
     }
@@ -122,13 +140,18 @@
         const row = view.rows.get(device.id);
         if (!row) continue;
         const label = device.name && device.name !== device.id ? `${escapeAttr(device.name)} <span class="text-muted">(${escapeAttr(device.id)})</span>` : escapeAttr(device.id);
-        const detail = [device.host, `gen ${device.gen}`, device.model].filter(Boolean).map(escapeAttr).join(' · ');
+        // Host links to the device's own web page; the transport line is the
+        // diagnostic for RPC over UDP (a plugin-wide switch that only applies
+        // to devices configured for it on the device side).
+        const hostHtml = device.host ? `<a href="http://${escapeAttr(device.host)}/" target="_blank" rel="noopener" title="Open the device's web page">${escapeAttr(device.host)}</a>` : '';
+        const detail = [hostHtml, `gen ${escapeAttr(String(device.gen))}`, device.model ? escapeAttr(device.model) : ''].filter(Boolean).join(' · ');
+        const transport = transportHtml(device);
         const multi = row.channelTypes.length > 0 && !row.sensor;
         const span = multi ? row.channelTypes.length + 1 : 1;
         rows.push(`
           <tr>
             <td rowspan="${span}" style="vertical-align: middle;">
-              ${label}<br><span class="text-muted" style="font-size: 0.8rem;">${detail}</span>
+              ${label}<br><span class="text-muted" style="font-size: 0.8rem;">${detail}</span>${transport ? `<br><span class="text-muted" style="font-size: 0.8rem;">${transport}</span>` : ''}
             </td>
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>

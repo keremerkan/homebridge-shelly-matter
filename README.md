@@ -223,7 +223,7 @@ device. With `rpcOverUdp: true` (settings form: "RPC over UDP") the plugin also
 listens on UDP port 8585, and any device you configure for it reports there
 instead: on the device's web page, **Settings > RPC over UDP**, enable it and
 set the destination to `<homebridge-ip>:8585` with listening port `8585`.
-Devices without that setting keep using the WebSocket. This is the simplest
+Devices without that setting keep using the WebSocket. The settings table shows each device's transport under its host (which links to the device's web page) and flags a device whose UDP setting and the plugin option disagree. This is the simplest
 way to get updates from Gen 2+ battery devices (Plus H&T, H&T Gen3, Flood Gen4,
 Plus Smoke), which sleep and cannot hold a WebSocket; it needs a stable IP for
 the Homebridge host. Verified on a Plus Plug S (control from the Home app and

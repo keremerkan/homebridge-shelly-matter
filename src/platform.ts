@@ -32,6 +32,10 @@ interface KnownDevice {
   pendingRotation?: boolean;
   /** Battery device that sleeps between reports (restored from its saved payload when unreachable at startup). */
   sleeping?: boolean;
+  /** How the device reports state changes to the plugin (recorded at connect time; shown in the settings UI). */
+  transport?: 'coiot' | 'websocket' | 'udp';
+  /** The device's own RPC-over-UDP destination (Gen 2+), so the UI can point out a device configured for UDP while the option is off, or the reverse. */
+  udpDestination?: string | null;
 }
 
 const HOST_RETRY_MS = 60_000;
@@ -534,9 +538,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     const pendingRotation = entry.pendingRotation ?? existing?.pendingRotation;
     if (pendingRotation !== undefined) merged.pendingRotation = pendingRotation;
     else delete merged.pendingRotation;
-    const sleeping = entry.sleeping ?? existing?.sleeping;
-    if (sleeping !== undefined) merged.sleeping = sleeping;
-    else delete merged.sleeping;
+    for (const key of ['sleeping', 'transport', 'udpDestination'] as const) {
+      const value = entry[key] ?? existing?.[key];
+      if (value !== undefined) (merged as Record<string, unknown>)[key] = value;
+      else delete merged[key];
+    }
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
@@ -609,6 +615,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       channels: mapped.length,
       kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
       ...(device.sleepMode ? { sleeping: true } : {}),
+      transport: device.gen === 1 ? 'coiot' : device.udp ? 'udp' : 'websocket',
+      ...(device.gen >= 2 ? { udpDestination: (device.getComponent('sys')?.getValue('rpc_udp') as { dst_addr?: string | null } | undefined)?.dst_addr ?? null } : {}),
     });
     if (this.isHidden(device.id, host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
