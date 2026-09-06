@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, default
  */
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
-const UNTESTED_KINDS = ['contact', 'illuminance', 'vibration'];
+const UNTESTED_KINDS = ['vibration'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
