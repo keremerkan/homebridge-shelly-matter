@@ -8,8 +8,7 @@
   </div>
   <div id="device-table"></div>
   <div class="text-muted" style="font-size: 0.8rem;">
-    Relays and plugs are tested on real devices; covers and dimmers are newly
-    supported but not yet validated on real hardware. Please confirm they work
+    &#9432; Device types marked <span class="badge badge-warning">untested</span> are implemented but not yet confirmed on real hardware. Please confirm they work
     (or report problems) at
     <a href="https://github.com/keremerkan/homebridge-shelly-matter/issues" target="_blank" rel="noopener">github.com/keremerkan/homebridge-shelly-matter/issues</a>.
   </div>
@@ -169,11 +168,11 @@
           <thead><tr><th>Device</th><th></th><th>Name</th><th>Accessory type</th><th title="Expose each channel as its own accessory so channels can be placed in different rooms.">Split</th><th>Hide</th></tr></thead>
           <tbody>${rows.join('')}</tbody>
         </table>
-        <ul class="text-muted list-unstyled" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
-          <li>&#9432; <strong>Split</strong> (multi-channel devices): ticked, each channel is its own accessory and can be placed in its own room; unticked, the device is one accessory with a control per channel.</li>
-          <li>&#9432; <strong>Hide</strong>: the device or channel is not exposed at all.</li>
-          <li>&#9432; Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.</li>
-        </ul>`;
+        <div class="text-muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
+          <div>&#9432; <strong>Split</strong> (multi-channel devices): ticked, each channel is its own accessory and can be placed in its own room; unticked, the device is one accessory with a control per channel.</div>
+          <div>&#9432; <strong>Hide</strong>: the device or channel is not exposed at all.</div>
+          <div>&#9432; Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.</div>
+        </div>`;
       for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], select[data-gas]')) {
         el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
       }
