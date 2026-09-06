@@ -18,3 +18,7 @@ export const DEVICES_FILE = 'devices.json';
  * filters name-alikes (e.g. a HAP bridge someone named "Shelly...").
  */
 export const SHELLY_ID_PATTERN = /^shelly[a-z0-9]*-[0-9a-f]{6,}$/i;
+/** Devices running unofficial firmware advertise on this port; the plugin skips them. */
+export const UNOFFICIAL_FIRMWARE_PORT = 9000;
+/** Whether an mDNS sighting is a Shelly this plugin will talk to. */
+export const isShellyDiscovery = ({ id, port }: { id: string; port?: number }): boolean => SHELLY_ID_PATTERN.test(id) && port !== UNOFFICIAL_FIRMWARE_PORT;

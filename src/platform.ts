@@ -6,9 +6,9 @@ import path from 'node:path';
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
-import { channelConfig, configForDevice, deviceConfigs, METER_TOTAL_KIND } from './deviceConfig.js';
-import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN } from './settings.js';
-import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState } from './shellyAccessory.js';
+import { channelConfig, configForDevice, deviceConfigs, deviceHidden, METER_TOTAL_KIND } from './deviceConfig.js';
+import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
+import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
@@ -24,7 +24,7 @@ interface KnownDevice {
   model: string | null;
   name: string | null;
   channels: number | null;
-  /** Component kind per channel ('switch' | 'cover' | 'dimmer'), once the device has connected. */
+  /** Component kind per channel (a ComponentKind, or 'meter-total' for the hidden-by-default triphase total), once the device has connected. */
   kinds: string[] | null;
   /** Current identity rotation generation - persisted so a rotation never lands on a used identity even when the accessory cache is gone. */
   generation?: number;
@@ -40,6 +40,9 @@ interface KnownDevice {
 
 const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
+/** How long a registration keeps waiting for the Matter server to come up. */
+const REGISTER_DEADLINE_MS = 80_000;
+const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination'] as const;
 
 /** The first external IPv4 address of the given interface, or of the first interface that has one. */
 function localIpv4(interfaceName?: string): string | undefined {
@@ -76,6 +79,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly configuredHostById = new Map<string, string>();
   /** Hosts already reported unreachable once - later failures log at debug (sleeping sensors are unreachable most of the time). */
   private readonly unreachableWarned = new Set<string>();
+  /** Last ShellyDevice.create attempt per host, so one-shot wake-up attempts are rate limited. */
+  private readonly lastCreateAttempt = new Map<string, number>();
   /** The accessory UUIDs currently registered for a device - one entry grouped, several when splitChannels is on. */
   private readonly uuidsByDevice = new Map<string, string[]>();
   /** The current rotation generation per device (see ShellyAccessoryContext.generation). */
@@ -226,9 +231,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // before paired controllers can see the structure: a live rotation on a
     // commissioned bridge desyncs Apple Home (the bridge record is rebuilt
     // and devices vanish until the hub reboots), while an offline transition
-    // is handled like any reboot. No quiet-delay is needed here anymore -
-    // registering immediately is what keeps the node offline until we are
-    // done.
+    // is handled like any reboot. Registering immediately is what keeps the
+    // node offline until we are done.
     const cachedByDevice = new Map<string, MatterAccessory[]>();
     for (const cached of this.matterAccessories.values()) {
       const deviceId = cachedAccessoryDeviceId(cached);
@@ -296,7 +300,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     }
 
     this.shelly.on('discovered', (discovered: DiscoveredDevice) => {
-      if (discovered.port === 9000) {
+      if (discovered.port === UNOFFICIAL_FIRMWARE_PORT) {
         this.log.warn(`Shelly ${discovered.id} at ${discovered.host} runs unofficial firmware (port 9000) - skipping.`);
         return;
       }
@@ -403,6 +407,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    */
   private async addHost(host: string, hostOnlyEntry = false, retry = true): Promise<void> {
     if (!this.shelly || this.shelly.hasDeviceHost(host) || this.creatingHosts.has(host)) return;
+    // One retry chain per host (config entry and mDNS sighting both arrive
+    // here), and one-shot attempts (a CoIoT report) no more often than the
+    // retry cadence - every attempt is a full fetch sequence with timeouts.
+    if (this.hostRetryTimers.has(host)) return;
+    if (!retry && Date.now() - (this.lastCreateAttempt.get(host) ?? 0) < HOST_RETRY_MS) return;
+    this.lastCreateAttempt.set(host, Date.now());
     this.creatingHosts.add(host);
     const device = await ShellyDevice.create(this.shelly, this.shellyLog, host)
       .catch((error: unknown) => {
@@ -412,8 +422,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       .finally(() => this.creatingHosts.delete(host));
     if (!device) {
       if (await this.restoreSleepingDevice(host)) return;
-      const known = [...this.knownDevices.values()].find((row) => row.host === host);
-      const hint = known?.sleeping ? ' (a sleeping battery device - it is set up when it next reports)' : '';
+      const hint = this.knownByHost(host)?.sleeping ? ' (a sleeping battery device - it is set up when it next reports)' : '';
       if (this.unreachableWarned.has(host)) this.log.debug(`Could not reach Shelly at ${host}${hint}.`);
       else this.log.warn(`Could not reach Shelly at ${host}${hint}${retry ? `, retrying every ${HOST_RETRY_MS / 1000}s` : ''}.`);
       this.unreachableWarned.add(host);
@@ -447,28 +456,28 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * that wakes it refreshes everything (the protocol layer re-fetches and
    * re-saves on 'awake'). Only devices that sleep are restored this way.
    */
-  private async restoreSleepingDevice(host: string): Promise<ShellyDevice | undefined> {
-    if (!this.shelly) return undefined;
-    const known = [...this.knownDevices.values()].find((row) => row.host === host);
-    if (!known) return undefined;
+  private async restoreSleepingDevice(host: string): Promise<boolean> {
+    if (!this.shelly) return false;
+    const known = this.knownByHost(host);
+    if (!known) return false;
     const file = path.join(this.dataPath, `${known.id}.json`);
     try {
       await fs.access(file);
     } catch {
-      return undefined;
+      return false;
     }
     const device = await ShellyDevice.create(this.shelly, this.shellyLog, file).catch(() => undefined);
-    if (!device) return undefined;
+    if (!device) return false;
     if (!device.sleepMode || this.shelly.getDevice(device.id)) {
       device.destroy();
-      return undefined;
+      return false;
     }
     device.setHost(host);
     device.cached = true;
     device.online = false;
     this.log.info(`Shelly ${device.id} at ${host} is a sleeping device - restored from its last saved state; live values arrive when it next reports.`);
     await this.shelly.addDevice(device);
-    return device;
+    return true;
   }
 
   /**
@@ -479,28 +488,38 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    */
   private async registerVerified(accessory: MatterAccessory): Promise<boolean> {
     const label = accessory.displayName;
-    // Every accessory this plugin builds is composed with onOff on every
-    // part - confirm registration by reading the first part's first cluster.
+    // Confirm registration by reading the first part's first (primary) cluster back.
     const part = accessory.parts?.[0];
-    const probeCluster = part ? Object.keys(part.clusters)[0] : 'onOff';
-    const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probeCluster, part?.id)) !== undefined;
+    if (!part) {
+      this.log.error(`Could not register ${label}: it has no parts.`);
+      return false;
+    }
+    const probeCluster = Object.keys(part.clusters)[0];
+    const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probeCluster, part.id)) !== undefined;
 
-    for (let attempt = 1; attempt <= 8 && !this.stopped; attempt++) {
+    const deadline = Date.now() + REGISTER_DEADLINE_MS;
+    let warned = false;
+    const notReady = (): void => {
+      if (!warned) this.log.warn(`Matter server not ready yet - retrying registration of ${label} until it is.`);
+      warned = true;
+    };
+    while (!this.stopped && Date.now() < deadline) {
       try {
         await this.matter.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       } catch (error) {
         // Homebridge >= 2.2.2 rejects registrations that arrive before the
-        // Matter server is running (previously they were silently dropped) -
-        // treat it like a failed verification and keep retrying. Any OTHER
-        // rejection (invalid cluster state, ...) is final: Homebridge keeps
-        // the half-built endpoint, so a retry only adds identity-conflict
+        // Matter server is running (previously they were silently dropped).
+        // Any OTHER rejection (invalid cluster state, ...) is final: Homebridge
+        // keeps the half-built endpoint, so a retry only adds identity-conflict
         // noise on top of the real cause (#11).
         const message = getErrorMessage(error);
         if (!/not (started|ready|running)/i.test(message)) {
           this.log.error(`Could not register ${label}: ${message}`);
           return false;
         }
-        this.log.debug(`Registration of ${label} rejected (${message}) - retrying.`);
+        notReady();
+        await sleep(500);
+        continue;
       }
       // On child bridges registration is dispatched through an event and
       // completes asynchronously - poll for a while before assuming it was
@@ -514,7 +533,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         await sleep(250);
       }
-      if (attempt === 1) this.log.warn(`Matter server not ready yet - retrying registration of ${label} until it is.`);
+      notReady();
     }
     if (!this.stopped) this.log.error(`Could not register ${label}: the Matter server never became ready.`);
     return false;
@@ -532,22 +551,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     };
     // Optional fields are only materialized when known - an `undefined` key
     // would make every comparison below fail and rewrite an identical file.
-    const generation = entry.generation ?? existing?.generation;
-    if (generation !== undefined) merged.generation = generation;
-    else delete merged.generation;
-    const pendingRotation = entry.pendingRotation ?? existing?.pendingRotation;
-    if (pendingRotation !== undefined) merged.pendingRotation = pendingRotation;
-    else delete merged.pendingRotation;
-    const sleeping = entry.sleeping ?? existing?.sleeping;
-    if (sleeping !== undefined) merged.sleeping = sleeping;
-    else delete merged.sleeping;
-    const transport = entry.transport ?? existing?.transport;
-    if (transport !== undefined) merged.transport = transport;
-    else delete merged.transport;
-    // null means "cleared on the device" and must replace an older value - so no `??` here.
-    const udpDestination = entry.udpDestination !== undefined ? entry.udpDestination : existing?.udpDestination;
-    if (udpDestination !== undefined) merged.udpDestination = udpDestination;
-    else delete merged.udpDestination;
+    // `!== undefined` rather than `??`: udpDestination's null means "cleared
+    // on the device" and must replace an older value.
+    for (const key of OPTIONAL_DEVICE_FIELDS) {
+      const value = entry[key] !== undefined ? entry[key] : existing?.[key];
+      if (value === undefined) delete merged[key];
+      else Object.assign(merged, { [key]: value });
+    }
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
@@ -599,13 +609,17 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
   /** Passes host through so host-only entries hide their device on every discovery path. */
   private isHidden(deviceId: string, host?: string): boolean {
-    return configForDevice(this.config, deviceId, host)?.hidden === true;
+    return deviceHidden(configForDevice(this.config, deviceId, host));
+  }
+
+  /** The devices.json row recorded at a host, if any. */
+  private knownByHost(host: string): KnownDevice | undefined {
+    return [...this.knownDevices.values()].find((row) => row.host === host);
   }
 
   /** Hidden by the entry a host resolves to (by the id devices.json recorded for it, else host-only). */
   private isHiddenHost(host: string): boolean {
-    const known = [...this.knownDevices.values()].find((row) => row.host === host);
-    return this.isHidden(known?.id ?? '', host);
+    return this.isHidden(this.knownByHost(host)?.id ?? '', host);
   }
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
@@ -653,13 +667,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // first so controllers see a clean remove+add (Apple Home breaks on
     // reappearances of identities it has seen before).
     const previous = this.uuidsByDevice.get(device.id) ?? [];
-    let newUuids = new Set(accessories.map((accessory) => accessory.UUID));
+    let newUuids = uuidsOf(accessories);
     const rotated = previous.length > 0 && (previous.length !== newUuids.size || previous.some((uuid) => !newUuids.has(uuid)));
     if (rotated) {
       generation += 1;
       this.generationByDevice.set(device.id, generation);
       accessories = buildShellyAccessories(this, device, generation);
-      newUuids = new Set(accessories.map((accessory) => accessory.UUID));
+      newUuids = uuidsOf(accessories);
       for (const previousUuid of previous) {
         const stale = this.matterAccessories.get(previousUuid);
         if (stale) {
