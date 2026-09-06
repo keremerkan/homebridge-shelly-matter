@@ -8,7 +8,7 @@
   </div>
   <div id="device-table"></div>
   <div class="text-muted" style="font-size: 0.8rem;">
-    &#9432; Device types marked <span class="badge badge-warning">untested</span> are implemented but not yet confirmed on real hardware. Please confirm they work
+    &#9432; Device types marked <span class="badge badge-warning bg-warning text-dark">untested</span> are implemented but not yet confirmed on real hardware. Please confirm they work
     (or report problems) at
     <a href="https://github.com/keremerkan/homebridge-shelly-matter/issues" target="_blank" rel="noopener">github.com/keremerkan/homebridge-shelly-matter/issues</a>.
   </div>
@@ -82,7 +82,7 @@
     function typeCellHtml(row, channel) {
       const kind = channel === undefined ? row.kind : row.channelKinds[channel];
       if (kind !== 'switch') {
-        const badge = view.untested.includes(kind === 'meter-total' ? 'meter' : kind) ? ' <span class="badge badge-warning">untested</span>' : '';
+        const badge = view.untested.includes(kind === 'meter-total' ? 'meter' : kind) ? ' <span class="badge badge-warning bg-warning text-dark">untested</span>' : '';
         const title = kind === 'meter-total' ? ' title="The phases already sum to this total, so it is hidden by default - exposing both would double-count energy in Apple Home. Untick Hide to expose it."' : '';
         return `<span${title}>${typeLabel(kind)}</span>${badge}`;
       }
@@ -98,7 +98,7 @@
     /** Sensor cell: fixed measurement labels, no type choice ("temperature + humidity"). */
     function sensorCellHtml(row) {
       const labels = row.sensorKinds.join(' + ');
-      const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning">untested</span>' : '';
+      const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning bg-warning text-dark">untested</span>' : '';
       const options = [];
       if (row.vibrationAsMotion !== undefined) {
         options.push(`<label style="margin: 0; font-weight: normal;" title="Expose the vibration (impact) detection as a motion sensor: an impact shows as motion for 10 seconds. Matter has no vibration sensor type. Raise the sensor's vibration sensitivity in the Shelly app if impacts do not register."><input type="checkbox" data-vibration="${escapeAttr(row.id)}" ${row.vibrationAsMotion ? 'checked' : ''}> impact as motion</label>`);
