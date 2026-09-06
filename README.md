@@ -148,8 +148,8 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Newer H&T / Flood generations (Plus H&T, H&T Gen3, Flood Gen4) | `shellyplusht`, `shellyhtg3`, `shellyfloodg4` | temperature + humidity / water leak + battery | 🟡 |
 | Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
+| Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
-| Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
 | Shelly EM Gen4 | `shellyemg4` | relay as outlet + power/energy on the tile, second clamp as electrical sensor | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
@@ -157,7 +157,6 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other energy meters (Gen 1 EM / 3EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists - Gen 1 EM/3EM: first clamp on the contactor relay); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
-| Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
 | Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
 
