@@ -21,7 +21,7 @@
       },
       "rpcOverUdp": {
         "title": "RPC over UDP (Gen 2+)",
-        "description": "Listen on UDP port 8585 for device updates. Devices you configure for it (device settings > RPC over UDP > destination <homebridge-ip>:8585, listening port 8585) then report over UDP instead of a WebSocket; the simplest way to get updates from Gen 2+ battery devices. Off by default.",
+        "description": "Listen on UDP port 8585 for device updates. Devices you configure for it (device settings > RPC over UDP > destination homebridge-ip:8585, listening port 8585) then report over UDP instead of a WebSocket; the simplest way to get updates from Gen 2+ battery devices. Off by default.",
         "type": "boolean",
         "default": false
       },
