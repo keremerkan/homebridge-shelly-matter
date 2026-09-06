@@ -226,7 +226,9 @@ set the destination to `<homebridge-ip>:8585` with listening port `8585`.
 Devices without that setting keep using the WebSocket. This is the simplest
 way to get updates from Gen 2+ battery devices (Plus H&T, H&T Gen3, Flood Gen4,
 Plus Smoke), which sleep and cannot hold a WebSocket; it needs a stable IP for
-the Homebridge host. Implemented, not yet hardware-confirmed.
+the Homebridge host. Verified on a Plus Plug S (control from the Home app and
+the device button both reflected immediately); the sleeping Gen 2+ sensors are
+not hardware-confirmed yet. The device needs a reboot after the setting change.
 
 ## Changing a device's accessory type or split setting
 
