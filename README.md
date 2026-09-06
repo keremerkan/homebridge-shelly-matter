@@ -121,7 +121,7 @@ if you own one and want it prioritized — we can usually provide a beta build t
 - Buttons and inputs (i3, i4, wall inputs) as stateless switches
 - TRV / thermostats
 
-Not mappable to Matter as what they are: gas sensors (no Matter device type; a CO-alarm style re-mapping is under consideration), tilt.
+Not mappable to Matter as what they are: gas detectors (no Matter device type; exposed as a smoke or CO alarm with `gasAlarm`), tilt.
 
 ### Device table
 
@@ -157,7 +157,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other energy meters (Gen 1 EM / 3EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists - Gen 1 EM/3EM: first clamp on the contactor relay); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
-| Shelly Gas | `shellygas` | — (no Matter device type) | ❌ |
+| Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
 
 Devices without supported components are discovered but skipped with a log message.
@@ -203,7 +203,8 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. A channel `name` is only used in the Home app when the device's channels are **split** into separate accessories (the default) — grouped devices always use the device `name` plus the channel number, and their tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `splitChannels` — multi-channel devices only, **on by default**: each channel is its own accessory, so channels can be assigned to different rooms (Apple Home assigns rooms per accessory — even "separate tiles" of one accessory always move rooms together). Set `false` to expose the device as one grouped accessory. Changing this re-creates the device's accessories with fresh identities — reassign rooms after.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
-- `vibrationAsMotion` — Door/Window sensors only: set `true` to expose the vibration (impact) detection as a motion sensor (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default). The detection itself is a device setting: enable vibration and raise "Vibration sensitivity" in the Shelly app (the factory default of 50 is often too low; 100 works).
+- `vibrationAsMotion` — Door/Window sensors only: set `true` to expose the vibration (impact) detection as a motion sensor; an impact shows as motion for 30 seconds (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default).
+- `gasAlarm` — Shelly Gas only: `smoke` or `co` exposes the detector's alarm as a smoke or carbon monoxide alarm (mild gas = warning, heavy gas = critical; the ppm value is not shown). Matter has no gas detector type, so this is a deliberate re-mapping; not exposed by default. The detection itself is a device setting: enable vibration and raise "Vibration sensitivity" in the Shelly app (the factory default of 50 is often too low; 100 works).
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 

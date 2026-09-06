@@ -596,7 +596,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     let generation = this.generationByDevice.get(device.id) ?? 0;
     let accessories = buildShellyAccessories(this, device, generation);
     if (accessories.length === 0) {
-      this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} has no supported components yet - skipping.`);
+      if (mapped.some(({ kind }) => kind === 'gas')) {
+        this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} is a gas detector - Matter has no gas detector type; set its "Gas alarm shown as" option to expose the alarm as a smoke or CO alarm.`);
+      } else {
+        this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} has no supported components yet - skipping.`);
+      }
       return;
     }
     // A composition change (type, splitChannels, live device shape) rotates

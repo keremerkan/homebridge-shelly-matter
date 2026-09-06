@@ -74,9 +74,35 @@
             },
             "vibrationAsMotion": {
               "title": "Vibration as motion sensor (Door/Window sensors)",
-              "description": "Expose the sensor's vibration (impact) detection as a motion sensor. Matter has no vibration sensor type, so Apple Home shows it as motion. Off by default. The detection itself is a device setting: enable vibration and raise \"Vibration sensitivity\" in the Shelly app (the factory default of 50 is often too low; 100 works).",
+              "description": "Expose the sensor's vibration (impact) detection as a motion sensor: an impact shows as motion for 30 seconds. Matter has no vibration sensor type, so Apple Home shows it as motion. Off by default. The detection itself is a device setting: enable vibration and raise \"Vibration sensitivity\" in the Shelly app (the factory default of 50 is often too low; 100 works).",
               "type": "boolean",
               "default": false
+            },
+            "gasAlarm": {
+              "title": "Gas alarm shown as (Shelly Gas)",
+              "description": "Matter has no gas detector type. Expose the Shelly Gas alarm as a smoke alarm or a carbon monoxide alarm in Apple Home (mild gas = warning, heavy gas = critical). Off by default; the ppm value is not shown.",
+              "type": "string",
+              "default": "off",
+              "oneOf": [
+                {
+                  "title": "Not exposed",
+                  "enum": [
+                    "off"
+                  ]
+                },
+                {
+                  "title": "Smoke alarm",
+                  "enum": [
+                    "smoke"
+                  ]
+                },
+                {
+                  "title": "Carbon monoxide alarm",
+                  "enum": [
+                    "co"
+                  ]
+                }
+              ]
             },
             "splitChannels": {
               "title": "Split channels into separate accessories",

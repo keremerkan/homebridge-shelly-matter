@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, default
  */
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
-const UNTESTED_KINDS = [];
+const UNTESTED_KINDS = ['gas'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
@@ -78,6 +78,7 @@ export function applyView({ config, devices, selections } = {}) {
     // Power metering is configured in the schema form, not the table - carry it over.
     if (!powerMeteringEnabled(prior)) entry.powerMetering = false;
     if (prior?.vibrationAsMotion === true) entry.vibrationAsMotion = true;
+    if (prior?.gasAlarm === 'smoke' || prior?.gasAlarm === 'co') entry.gasAlarm = prior.gasAlarm;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
     if (sel?.split === false) entry.splitChannels = false;

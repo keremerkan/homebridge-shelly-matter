@@ -9,10 +9,14 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
  * fixed Matter device type. Shared with the settings UI so its table and the
  * platform classify channels identically.
  */
-export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'meter';
+export type ComponentKind = 'switch' | 'cover' | 'dimmer' | 'temperature' | 'humidity' | 'flood' | 'contact' | 'illuminance' | 'vibration' | 'gas' | 'meter';
 
 /** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
-export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration'] as const;
+export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration', 'gas'] as const;
+
+/** How a gas detector's alarm is exposed - Matter has no gas detector type, so the user picks the alarm it appears as. */
+export const GAS_ALARM_MODES = ['smoke', 'co'] as const;
+export type GasAlarmMode = (typeof GAS_ALARM_MODES)[number];
 export const isSensorKind = (kind: string): boolean => (SENSOR_KINDS as readonly string[]).includes(kind);
 
 /** Kinds whose channels may split into separate accessories (sensors and meters never do). */
@@ -49,6 +53,8 @@ export interface ShellyDeviceConfig {
    * user opts into; OFF by default.
    */
   vibrationAsMotion?: boolean;
+  /** Gas detectors: expose the alarm as a smoke or CO alarm ('off' or absent = not exposed). */
+  gasAlarm?: GasAlarmMode | 'off';
   /**
    * Multi-channel devices only: expose each channel as its own accessory
    * (assignable to its own room). ON by default - set false to expose the
@@ -84,6 +90,10 @@ export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: nu
 
 /** Power metering is on unless the entry switches it off. */
 export const powerMeteringEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.powerMetering !== false;
+
+/** The alarm a gas detector is exposed as, or undefined when the entry has not opted in. */
+export const gasAlarmMode = (entry: ShellyDeviceConfig | undefined): GasAlarmMode | undefined =>
+  (GAS_ALARM_MODES as readonly string[]).includes(entry?.gasAlarm ?? '') ? (entry?.gasAlarm as GasAlarmMode) : undefined;
 
 /** Vibration exposed as a motion sensor only when the entry opts in. */
 export const vibrationAsMotionEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.vibrationAsMotion === true;
