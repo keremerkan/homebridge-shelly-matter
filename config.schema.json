@@ -78,6 +78,25 @@
               "type": "boolean",
               "default": true
             },
+            "vibrationAsMotion": {
+              "title": "Vibration as motion sensor",
+              "type": "boolean",
+              "condition": {
+                "functionBody": "return false;"
+              }
+            },
+            "gasAlarm": {
+              "title": "Gas alarm shown as",
+              "type": "string",
+              "enum": [
+                "off",
+                "smoke",
+                "co"
+              ],
+              "condition": {
+                "functionBody": "return false;"
+              }
+            },
             "splitChannels": {
               "title": "Split channels into separate accessories",
               "type": "boolean",
