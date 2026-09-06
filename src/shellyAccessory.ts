@@ -31,8 +31,12 @@ const milli = (value: number): number => Math.round(value * 1000);
 // Energy updates are pushed to controllers unthrottled (CumulativeEnergyMeasured
 // events), so Homebridge documents a 30-60s cadence. Shelly notifies more often.
 const ENERGY_PUSH_MIN_INTERVAL_MS = 30_000;
-/** How long a momentary event (an impact on a Door/Window sensor) stays "on" in Matter before the plugin clears it. */
-const VIBRATION_HOLD_MS = 30_000;
+/**
+ * How long a momentary event (an impact on a Door/Window sensor) stays "on"
+ * in Matter before the plugin clears it. Every new report restarts the hold;
+ * impacts inside the window merge into one detection.
+ */
+const VIBRATION_HOLD_MS = 10_000;
 
 type ClusterState = Record<string, unknown>;
 
