@@ -97,6 +97,10 @@ one confirmation moves it to tested.
   on/off and brightness.
 - **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
   tested Gen 1 devices, but no hardware confirmation yet.
+- **Smoke sensors** (Plus Smoke, Shelly Smoke Gen 1): smoke alarm and battery level.
+- **Shelly Gas**: Matter has no gas detector type, so its alarm is exposed as a smoke or
+  CO alarm of your choice with `gasAlarm` (in field testing,
+  [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10)).
 
 ### Gen 1 devices and CoIoT
 
@@ -190,7 +194,9 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
         { "channel": 1, "accessoryType": "switch", "hidden": true }
       ]
     },
-    { "host": "192.168.1.50", "powerMetering": false }
+    { "host": "192.168.1.50", "powerMetering": false },
+    { "device": "shellydw2-483FDAAABBCC", "name": "Package Box", "vibrationAsMotion": true },
+    { "device": "shellygas-7C87CEAABBCC", "gasAlarm": "smoke" }
   ]
 }
 ```
@@ -212,11 +218,11 @@ The platform also accepts `mdnsDiscover` (default `true`). Set it to `false` to 
 
 ## Changing a device's accessory type or split setting
 
-Changing the accessory type of a device or channel, hiding channels, or toggling
-`splitChannels` — all composition changes are applied when the bridge restarts,
-so **restart Homebridge (or this child bridge) after saving**. Type and split
-changes deliberately re-create its Matter accessories with fresh
-identities (Apple Home mishandles devices that reappear with the same identity
+Changing the accessory type of a device or channel, hiding channels, toggling
+`splitChannels`, `powerMetering`, `vibrationAsMotion` or `gasAlarm` — all
+composition changes are applied when the bridge restarts, so **restart
+Homebridge (or this child bridge) after saving**. Such changes deliberately
+re-create the device's Matter accessories with fresh identities (Apple Home mishandles devices that reappear with the same identity
 but a different structure, leaving them uneditable). The change is applied
 while the bridge restarts, before it comes back online, so paired controllers
 see a clean transition. Apple Home processes the change asynchronously — the
