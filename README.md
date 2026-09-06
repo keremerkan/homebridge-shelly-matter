@@ -149,6 +149,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
 | Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
+| Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
@@ -157,7 +158,6 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other energy meters (Gen 1 EM / 3EM, Pro EM, PM Mini) | `shellyem`, `shellyem3`, `shellypmmini` … | electrical sensor endpoints (merged onto the relay where one exists - Gen 1 EM/3EM: first clamp on the contactor relay); Apple shows no measurement tile for relay-less meters | 🟡 |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
-| Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | 🧪 [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
 
 Devices without supported components are discovered but skipped with a log message.
