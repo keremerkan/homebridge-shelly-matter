@@ -538,11 +538,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     const pendingRotation = entry.pendingRotation ?? existing?.pendingRotation;
     if (pendingRotation !== undefined) merged.pendingRotation = pendingRotation;
     else delete merged.pendingRotation;
-    for (const key of ['sleeping', 'transport', 'udpDestination'] as const) {
-      const value = entry[key] ?? existing?.[key];
-      if (value !== undefined) (merged as Record<string, unknown>)[key] = value;
-      else delete merged[key];
-    }
+    const sleeping = entry.sleeping ?? existing?.sleeping;
+    if (sleeping !== undefined) merged.sleeping = sleeping;
+    else delete merged.sleeping;
+    const transport = entry.transport ?? existing?.transport;
+    if (transport !== undefined) merged.transport = transport;
+    else delete merged.transport;
+    const udpDestination = entry.udpDestination ?? existing?.udpDestination;
+    if (udpDestination !== undefined) merged.udpDestination = udpDestination;
+    else delete merged.udpDestination;
     if (existing && deepEqual(existing, merged)) return;
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
