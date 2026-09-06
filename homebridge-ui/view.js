@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -15,36 +15,44 @@ const UNTESTED_KINDS = ['smoke', 'gas'];
  * (possibly unsaved) config so edits resolve live. Switch channels carry a
  * configurable type; cover/dimmer channels have a fixed kind (no dropdown).
  */
+const platformConfigOf = (config) => (config && typeof config === 'object' ? config : {});
+const listedDevices = (devices) => (Array.isArray(devices) ? devices : []).filter((device) => typeof device?.id === 'string');
+
 export function deviceView({ config, devices } = {}) {
-  const platformConfig = config && typeof config === 'object' ? config : {};
-  const rows = (Array.isArray(devices) ? devices : [])
-    .filter((device) => typeof device?.id === 'string')
-    .map((device) => {
-      const entry = configForDevice(platformConfig, device.id, device.host);
-      const channelCount = Number(device.channels) > 1 ? Number(device.channels) : 0;
-      const kindOf = (channel) => (Array.isArray(device.kinds) ? device.kinds[channel] : undefined) ?? 'switch';
-      const typeOf = (channel) => (kindOf(channel ?? 0) === 'switch' ? resolveAccessoryType(entry, device.id, channel) : kindOf(channel ?? 0));
-      return {
-        id: device.id,
-        kind: kindOf(0),
-        defaultType: defaultAccessoryType(device.id),
-        type: typeOf(undefined),
-        channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
-        channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
-        channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
-        channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, i, kindOf(i) === METER_TOTAL_KIND)),
-        name: entry?.name ?? '',
-        hidden: entry?.hidden === true,
-        split: splitChannelsEnabled(entry),
-        sensor: Array.isArray(device.kinds) && device.kinds.length > 0 && device.kinds.every(isSensorKind),
-        splittable: !Array.isArray(device.kinds) || device.kinds.every(isSplittableKind),
-        sensorKinds: Array.isArray(device.kinds) ? device.kinds.filter(isSensorKind) : [],
-        // Per-kind options, present only when the device has the kind (the
-        // page renders a control for each present option).
-        ...(Array.isArray(device.kinds) && device.kinds.includes('vibration') ? { vibrationAsMotion: vibrationAsMotionEnabled(entry) } : {}),
-        ...(Array.isArray(device.kinds) && device.kinds.includes('gas') ? { gasAlarm: gasAlarmMode(entry) ?? 'off' } : {}),
-      };
-    });
+  const platformConfig = platformConfigOf(config);
+  const rows = listedDevices(devices).map((device) => {
+    const entry = configForDevice(platformConfig, device.id, device.host);
+    const kinds = Array.isArray(device.kinds) ? device.kinds : null;
+    // Sensor devices (every kind a sensor kind) are one row with a fixed
+    // measurement cell: no channel rows, so no channel arrays.
+    const sensor = kinds !== null && kinds.length > 0 && kinds.every(isSensorKind);
+    const channelCount = !sensor && Number(device.channels) > 1 ? Number(device.channels) : 0;
+    const kindOf = (channel) => kinds?.[channel] ?? 'switch';
+    const typeOf = (channel) => {
+      const kind = kindOf(channel ?? 0);
+      return kind === 'switch' ? resolveAccessoryType(entry, device.id, channel) : kind;
+    };
+    return {
+      id: device.id,
+      kind: kindOf(0),
+      defaultType: defaultAccessoryType(device.id),
+      type: typeOf(undefined),
+      channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
+      channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
+      channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
+      channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, i, kindOf(i) === METER_TOTAL_KIND)),
+      name: entry?.name ?? '',
+      hidden: deviceHidden(entry),
+      split: splitChannelsEnabled(entry),
+      sensor,
+      splittable: kinds === null || kinds.every(isSplittableKind),
+      sensorKinds: kinds?.filter(isSensorKind) ?? [],
+      // Per-kind options, present only when the device has the kind (the
+      // page renders a control for each present option).
+      ...(kinds?.includes('vibration') ? { vibrationAsMotion: vibrationAsMotionEnabled(entry) } : {}),
+      ...(kinds?.includes('gas') ? { gasAlarm: gasAlarmMode(entry) ?? 'off' } : {}),
+    };
+  });
   return { types: [...ACCESSORY_TYPES], gasAlarmModes: [...GAS_ALARM_MODES], untested: UNTESTED_KINDS, rows };
 }
 
@@ -55,8 +63,8 @@ export function deviceView({ config, devices } = {}) {
  * the browser page only harvests neutral DOM values.
  */
 export function applyView({ config, devices, selections } = {}) {
-  const platformConfig = config && typeof config === 'object' ? config : {};
-  const list = (Array.isArray(devices) ? devices : []).filter((device) => typeof device?.id === 'string');
+  const platformConfig = platformConfigOf(config);
+  const list = listedDevices(devices);
   const chosen = new Map((Array.isArray(selections) ? selections : []).map((sel) => [sel.id, sel]));
   // Preserve entries for devices not in this listing.
   const listedIds = new Set(list.map((device) => device.id));
@@ -72,8 +80,8 @@ export function applyView({ config, devices, selections } = {}) {
     const sel = chosen.get(device.id);
     // Always record the current IP so the plugin keeps working if mDNS
     // discovery is disabled later; with mDNS on it is harmlessly redundant.
-    const entry = { device: device.id, host: device.host || prior?.host };
-    if (!entry.host) delete entry.host;
+    const host = device.host || prior?.host;
+    const entry = { device: device.id, ...(host && { host }) };
     if (sel?.name) entry.name = sel.name;
     // Write the type explicitly (even when it matches the default) so the
     // devices list in the schema form shows the effective value, not blank.
@@ -85,7 +93,7 @@ export function applyView({ config, devices, selections } = {}) {
     // without the control (kinds not known yet) keeps the prior value.
     const vibration = sel?.vibrationAsMotion ?? vibrationAsMotionEnabled(prior);
     if (vibration === true) entry.vibrationAsMotion = true;
-    const gas = sel?.gasAlarm !== undefined ? gasAlarmMode({ gasAlarm: sel.gasAlarm }) : gasAlarmMode(prior);
+    const gas = gasAlarmMode(sel?.gasAlarm !== undefined ? sel : prior);
     if (gas !== undefined) entry.gasAlarm = gas;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
@@ -107,7 +115,7 @@ export function applyView({ config, devices, selections } = {}) {
         }
         return channelEntry;
       })
-      .filter((channelEntry) => channelEntry.accessoryType !== undefined || channelEntry.hidden !== undefined || channelEntry.name !== undefined);
+      .filter((channelEntry) => Object.keys(channelEntry).length > 1); // more than just `channel` = a recorded deviation
     if (channels.length > 0) entry.channels = channels;
     // A device the plugin has not connected to yet (no kinds recorded) shows
     // no channel rows, so its hand-written channel settings must survive.

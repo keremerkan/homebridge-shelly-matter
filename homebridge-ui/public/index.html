@@ -28,7 +28,8 @@
     // (effective/default types, entry name/hidden) - this page holds no copy
     // of the config rules, in either direction: it renders rows and posts
     // neutral selections back.
-    let view = { types: [], untested: [], rows: new Map() };
+    let view = { rows: new Map() };
+    const UNTESTED_BADGE = ' <span class="badge badge-warning bg-warning text-dark">untested</span>';
 
     const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const typeLabel = (type) => (type === 'meter-total'
@@ -36,32 +37,35 @@
       : type.charAt(0).toUpperCase() + type.slice(1));
 
     async function loadView() {
-      const { types, gasAlarmModes, untested, rows } = await homebridge.request('/device-view', { config, devices });
-      view = { types, gasAlarmModes: gasAlarmModes ?? [], untested, rows: new Map(rows.map((row) => [row.id, row])) };
+      const { rows, ...rest } = await homebridge.request('/device-view', { config, devices });
+      view = { ...rest, rows: new Map(rows.map((row) => [row.id, row])) };
     }
+
+    const field = (selector, key) => document.querySelector(`${selector}="${CSS.escape(key)}"]`);
+    const channelKey = (id, channel) => `${id}:${channel}`;
 
     /** Harvests the table into neutral selections; server.js rebuilds the entries. */
     function harvestSelections() {
       return devices.map((device) => {
         const sel = { id: device.id };
-        const nameInput = document.querySelector(`input[data-name-entry="${CSS.escape(device.id)}"]`);
+        const nameInput = field('input[data-name-entry', device.id);
         if (nameInput?.value.trim()) sel.name = nameInput.value.trim();
-        const select = document.querySelector(`select[data-entry="${CSS.escape(device.id)}"]`);
+        const select = field('select[data-entry', device.id);
         if (select) sel.type = select.value;
-        sel.hidden = document.querySelector(`input[data-hide="${CSS.escape(device.id)}"]`)?.checked === true;
-        const splitBox = document.querySelector(`input[data-split="${CSS.escape(device.id)}"]`);
+        sel.hidden = field('input[data-hide', device.id)?.checked === true;
+        const splitBox = field('input[data-split', device.id);
         if (splitBox) sel.split = splitBox.checked;
-        const vibrationBox = document.querySelector(`input[data-vibration="${CSS.escape(device.id)}"]`);
+        const vibrationBox = field('input[data-vibration', device.id);
         if (vibrationBox) sel.vibrationAsMotion = vibrationBox.checked;
-        const gasSelect = document.querySelector(`select[data-gas="${CSS.escape(device.id)}"]`);
+        const gasSelect = field('select[data-gas', device.id);
         if (gasSelect) sel.gasAlarm = gasSelect.value;
         // Every channel row has a hide checkbox; only switch channels have a
         // type dropdown (covers/dimmers are fixed kinds).
         const channelKinds = view.rows.get(device.id)?.channelKinds ?? [];
         sel.channels = channelKinds.map((_, channel) => {
-          const channelSelect = document.querySelector(`select[data-entry="${CSS.escape(`${device.id}:${channel}`)}"]`);
-          const channelName = document.querySelector(`input[data-channel-name="${CSS.escape(`${device.id}:${channel}`)}"]`)?.value.trim();
-          const hidden = document.querySelector(`input[data-hide="${CSS.escape(`${device.id}:${channel}`)}"]`)?.checked === true;
+          const channelSelect = field('select[data-entry', channelKey(device.id, channel));
+          const channelName = field('input[data-channel-name', channelKey(device.id, channel))?.value.trim();
+          const hidden = field('input[data-hide', channelKey(device.id, channel))?.checked === true;
           return { channel, ...(channelName && { name: channelName }), ...(channelSelect && { type: channelSelect.value }), hidden };
         });
         return sel;
@@ -82,7 +86,7 @@
     function typeCellHtml(row, channel) {
       const kind = channel === undefined ? row.kind : row.channelKinds[channel];
       if (kind !== 'switch') {
-        const badge = view.untested.includes(kind === 'meter-total' ? 'meter' : kind) ? ' <span class="badge badge-warning bg-warning text-dark">untested</span>' : '';
+        const badge = view.untested.includes(kind) ? UNTESTED_BADGE : '';
         const title = kind === 'meter-total' ? ' title="The phases already sum to this total, so it is hidden by default - exposing both would double-count energy in Apple Home. Untick Hide to expose it."' : '';
         return `<span${title}>${typeLabel(kind)}</span>${badge}`;
       }
@@ -98,7 +102,7 @@
     /** Sensor cell: fixed measurement labels, no type choice ("temperature + humidity"). */
     function sensorCellHtml(row) {
       const labels = row.sensorKinds.join(' + ');
-      const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? ' <span class="badge badge-warning bg-warning text-dark">untested</span>' : '';
+      const badge = row.sensorKinds.some((kind) => view.untested.includes(kind)) ? UNTESTED_BADGE : '';
       const options = [];
       if (row.vibrationAsMotion !== undefined) {
         options.push(`<label style="margin: 0; font-weight: normal;" title="Expose the vibration (impact) detection as a motion sensor: an impact shows as motion for 10 seconds. Matter has no vibration sensor type. Raise the sensor's vibration sensitivity in the Shelly app if impacts do not register."><input type="checkbox" data-vibration="${escapeAttr(row.id)}" ${row.vibrationAsMotion ? 'checked' : ''}> impact as motion</label>`);
@@ -117,14 +121,15 @@
       const names = { coiot: 'CoIoT', websocket: 'WebSocket', udp: 'RPC over UDP' };
       const parts = [names[device.transport] ?? device.transport];
       if (device.sleeping) parts.push('sleeps between reports');
-      const udpOn = config.rpcOverUdp === true;
-      if (device.transport === 'websocket' && device.udpDestination) {
-        parts.push(udpOn
-          ? `<span class="text-warning">device sends UDP to ${escapeAttr(device.udpDestination)}, which is not this host - fix the device setting or it will use WebSocket</span>`
-          : `<span class="text-warning">device is configured for RPC over UDP (${escapeAttr(device.udpDestination)}) but the plugin option is off</span>`);
-      }
-      if (device.transport === 'websocket' && !device.udpDestination && udpOn && device.sleeping) {
-        parts.push('<span class="text-warning">battery device: configure RPC over UDP on it to receive its reports</span>');
+      if (device.transport === 'websocket') {
+        const udpOn = config.rpcOverUdp === true;
+        if (device.udpDestination) {
+          parts.push(udpOn
+            ? `<span class="text-warning">device sends UDP to ${escapeAttr(device.udpDestination)}, which is not this host - fix the device setting or it will use WebSocket</span>`
+            : `<span class="text-warning">device is configured for RPC over UDP (${escapeAttr(device.udpDestination)}) but the plugin option is off</span>`);
+        } else if (udpOn && device.sleeping) {
+          parts.push('<span class="text-warning">battery device: configure RPC over UDP on it to receive its reports</span>');
+        }
       }
       return parts.join(' · ');
     }
@@ -145,7 +150,7 @@
         const hostHtml = device.host ? `<a href="http://${escapeAttr(device.host)}/" target="_blank" rel="noopener" title="Open the device's web page">${escapeAttr(device.host)}</a>` : '';
         const detail = [hostHtml, `gen ${escapeAttr(String(device.gen))}`, device.model ? escapeAttr(device.model) : ''].filter(Boolean).join(' · ');
         const transport = transportHtml(device);
-        const multi = row.channelTypes.length > 0 && !row.sensor;
+        const multi = row.channelTypes.length > 0;
         const span = multi ? row.channelTypes.length + 1 : 1;
         rows.push(`
           <tr>
