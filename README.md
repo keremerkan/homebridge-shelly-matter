@@ -218,17 +218,32 @@ The platform also accepts `rpcOverUdp` (default `false`): see [RPC over UDP](#rp
 
 ## RPC over UDP (Gen 2+)
 
-Gen 2+ devices normally report over a WebSocket the plugin keeps open to each
-device. With `rpcOverUdp: true` (settings form: "RPC over UDP") the plugin also
-listens on UDP port 8585, and any device you configure for it reports there
-instead: on the device's web page, **Settings > RPC over UDP**, enable it and
-set the destination to `<homebridge-ip>:8585` with listening port `8585`.
-Devices without that setting keep using the WebSocket. The settings table shows each device's transport under its host (which links to the device's web page) and flags a device whose UDP setting and the plugin option disagree. This is the simplest
-way to get updates from Gen 2+ battery devices (Plus H&T, H&T Gen3, Flood Gen4,
-Plus Smoke), which sleep and cannot hold a WebSocket; it needs a stable IP for
-the Homebridge host. Verified on a Plus Plug S (control from the Home app and
-the device button both reflected immediately); the sleeping Gen 2+ sensors are
-not hardware-confirmed yet. The device needs a reboot after the setting change.
+Gen 2+ devices normally report state changes over a WebSocket the plugin keeps
+open to each device. `rpcOverUdp: true` (settings form: "RPC over UDP") makes
+the plugin also listen on UDP port 8585, and devices you configure for it push
+their reports there instead:
+
+1. On the device's web page open **Settings > RPC over UDP**, enable it, set the
+   destination to `<homebridge-ip>:8585` and the listening port to `8585`.
+2. Reboot the device (the setting only takes effect after a restart).
+3. Restart Homebridge (or the child bridge). The settings table then shows
+   "RPC over UDP" under the device; devices without the setting stay on
+   "WebSocket", and a device configured for UDP while the plugin option is off
+   (or pointing at another host) is flagged there.
+
+Which transport for which device:
+
+- **Battery devices (Plus H&T, H&T Gen3, Flood Gen4, Plus Smoke): use UDP.** They
+  sleep and cannot hold a WebSocket, so this is the simplest way to receive
+  their reports (not hardware-confirmed yet).
+- **Always-connected devices: WebSocket is the better default.** It is
+  reliable and ordered, and the plugin notices immediately when a device
+  drops. UDP is fire-and-forget (a lost packet is a missed update until the
+  device's next periodic report) and offers no such signal. Use it on mains
+  devices only if you prefer push, e.g. on large installations. Verified on a
+  Plus Plug S and two Plus 1 (Home app and wall switch both reflected immediately).
+- A device has a **single** UDP destination, so it cannot also feed another
+  integration over UDP; the Homebridge host needs a stable IP.
 
 ## Changing a device's accessory type or split setting
 
