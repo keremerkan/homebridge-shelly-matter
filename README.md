@@ -83,7 +83,8 @@ one confirmation moves it to tested.
   The Shelly Door/Window 2 (contact, light level, temperature, battery) is confirmed by
   field testing as of 0.9.0 ([#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10));
   its vibration detection can be exposed as a motion sensor with `vibrationAsMotion`
-  (mapped, not yet hardware-confirmed).
+  (confirmed too; raise the sensor's vibration sensitivity in the Shelly app if impacts
+  do not register).
   Battery sensors that are asleep when Homebridge starts are restored from their last
   reported state (once the plugin has seen them awake once) and refresh when they next report.
   Gen 1 sensor models report over CoIoT — the note below applies.
@@ -145,7 +146,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other covers / rollers (Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
 | Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
 | Newer H&T / Flood generations (Plus H&T, H&T Gen3, Flood Gen4) | `shellyplusht`, `shellyhtg3`, `shellyfloodg4` | temperature + humidity / water leak + battery | 🟡 |
-| Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) (vibration 🟡) |
+| Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Smoke sensors | `shellyplussmoke` … | smoke alarm + battery | ⏳ |
@@ -202,7 +203,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `channels` — per-channel settings for multi-channel devices (`channel` is 0-based): `name`, `accessoryType`, `hidden`. A channel `name` is only used in the Home app when the device's channels are **split** into separate accessories (the default) — grouped devices always use the device `name` plus the channel number, and their tiles are renamed in the Home app. Channels without an entry use the device settings.
 - `splitChannels` — multi-channel devices only, **on by default**: each channel is its own accessory, so channels can be assigned to different rooms (Apple Home assigns rooms per accessory — even "separate tiles" of one accessory always move rooms together). Set `false` to expose the device as one grouped accessory. Changing this re-creates the device's accessories with fresh identities — reassign rooms after.
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
-- `vibrationAsMotion` — Door/Window sensors only: set `true` to expose the vibration (impact) detection as a motion sensor (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default).
+- `vibrationAsMotion` — Door/Window sensors only: set `true` to expose the vibration (impact) detection as a motion sensor (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default). Set the sensor's vibration sensitivity high enough in the Shelly app for impacts to register.
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 
