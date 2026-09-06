@@ -101,7 +101,10 @@
               "title": "Split channels into separate accessories",
               "type": "boolean",
               "default": true,
-              "description": "Multi-channel devices only, on by default: each channel becomes its own accessory that can be assigned to its own room. Turn off to expose the device as one grouped accessory. Changing this re-creates the device's accessories - reassign rooms after."
+              "description": "Multi-channel devices only, on by default: each channel becomes its own accessory that can be assigned to its own room. Turn off to expose the device as one grouped accessory. Changing this re-creates the device's accessories - reassign rooms after.",
+              "condition": {
+                "functionBody": "return false;"
+              }
             },
             "channels": {
               "title": "Channels (multi-channel devices only)",
