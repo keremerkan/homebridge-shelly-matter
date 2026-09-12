@@ -672,7 +672,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // reappearances of identities it has seen before).
     const previous = this.uuidsByDevice.get(device.id) ?? [];
     let newUuids = uuidsOf(accessories);
-    const rotated = previous.length > 0 && (previous.length !== newUuids.size || previous.some((uuid) => !newUuids.has(uuid)));
+    // A composition change is a previous identity going away. A device merely
+    // GAINING an accessory (add-on probes appearing on a split device, #12)
+    // keeps its existing identities and registers the new one like any new
+    // device - rotating the whole device for that would re-register the
+    // existing accessories live on a commissioned bridge.
+    const rotated = previous.some((uuid) => !newUuids.has(uuid));
     if (rotated) {
       generation += 1;
       this.generationByDevice.set(device.id, generation);

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A device that gains an accessory (add-on probes appearing on a device with split channels) no longer has its existing accessories re-created: only the new accessory is added, the others keep their identity and rooms.
 - Gen 2+ humidity components (H&T Gen3, add-on probes) report `rh`; the plugin only read Gen 1's `value`, so their humidity never updated.
 - Settings table: channel numbers written to the config are the device's component indices (add-on probes are 100+), so hiding or naming an add-on row applies to the right part.
 
