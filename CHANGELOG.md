@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-12
+
+### Added
+
+- **Shelly Plus Add-on probes** ([#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12)): temperature and humidity probes attached to a Gen 2+ relay are exposed as sensor parts. On a single-channel device they join the device's accessory; on a device whose channels are split they form one extra "Sensors" accessory, so the split channels keep their identities and rooms. Two probes of the same kind are numbered. Devices with probes get their accessories re-created once (the probes are a composition change).
+
+### Fixed
+
+- Gen 2+ humidity components (H&T Gen3, add-on probes) report `rh`; the plugin only read Gen 1's `value`, so their humidity never updated.
+- Settings table: channel numbers written to the config are the device's component indices (add-on probes are 100+), so hiding or naming an add-on row applies to the right part.
+
 ## [0.9.0] - 2026-09-06
 
 ### Added

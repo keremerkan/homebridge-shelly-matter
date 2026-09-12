@@ -101,6 +101,10 @@ one confirmation moves it to tested.
 - **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
   tested Gen 1 devices, but no hardware confirmation yet.
 - **Smoke sensors** (Plus Smoke, Shelly Smoke Gen 1): smoke alarm and battery level.
+- **Shelly Plus Add-on probes** (temperature/humidity sensors attached to a Gen 2+ relay):
+  extra temperature and humidity parts on the relay's accessory; on a device whose channels
+  are split, the probes form one extra "Sensors" accessory so the channels keep their rooms
+  (in field testing, [#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12)).
 
 ### Gen 1 devices and CoIoT
 
@@ -153,6 +157,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |
 | Shelly Plus Smoke, Shelly Smoke (Gen 1) | `shellyplussmoke`, `shellysmoke` | smoke alarm + battery | 🟡 |
+| Shelly Plus Add-on probes (on any Gen 2+ relay) | `temperature:100`, `humidity:100` components | temperature / humidity parts; a separate "Sensors" accessory on split devices | 🧪 [#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12) |
 | Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) (CO alarm mode) |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |

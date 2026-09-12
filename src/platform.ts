@@ -26,6 +26,8 @@ interface KnownDevice {
   channels: number | null;
   /** Component kind per channel (a ComponentKind, or 'meter-total' for the hidden-by-default triphase total), once the device has connected. */
   kinds: string[] | null;
+  /** The component index behind each channel position (config `channel` numbers) - add-on probes are 100+, not their table position. */
+  indexes?: number[] | null;
   /** Current identity rotation generation - persisted so a rotation never lands on a used identity even when the accessory cache is gone. */
   generation?: number;
   /** A structural change was detected on a live, registered identity; the rotation applying it runs pre-online at the next startup. */
@@ -548,6 +550,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: entry.name ?? existing?.name ?? null,
       channels: entry.channels ?? existing?.channels ?? null,
       kinds: entry.kinds ?? existing?.kinds ?? null,
+      indexes: entry.indexes ?? existing?.indexes ?? null,
     };
     // Optional fields are only materialized when known - an `undefined` key
     // would make every comparison below fail and rewrite an identical file.
@@ -633,6 +636,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       name: device.name,
       channels: mapped.length,
       kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
+      indexes: mapped.map(({ component }) => component.index),
       ...(device.sleepMode ? { sleeping: true } : {}),
       transport: device.gen === 1 ? 'coiot' : device.udp ? 'udp' : 'websocket',
       ...(device.gen >= 2 ? { udpDestination: (device.getComponent('sys')?.getValue('rpc_udp') as { dst_addr?: string | null } | undefined)?.dst_addr ?? null } : {}),

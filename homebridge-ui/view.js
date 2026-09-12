@@ -28,9 +28,11 @@ export function deviceView({ config, devices } = {}) {
     const sensor = kinds !== null && kinds.length > 0 && kinds.every(isSensorKind);
     const channelCount = !sensor && Number(device.channels) > 1 ? Number(device.channels) : 0;
     const kindOf = (channel) => kinds?.[channel] ?? 'switch';
+    // Config `channel` numbers are component indices (add-on probes are 100+), not table positions.
+    const indexOf = (channel) => (Array.isArray(device.indexes) ? device.indexes[channel] : undefined) ?? channel;
     const typeOf = (channel) => {
       const kind = kindOf(channel ?? 0);
-      return kind === 'switch' ? resolveAccessoryType(entry, device.id, channel) : kind;
+      return kind === 'switch' ? resolveAccessoryType(entry, device.id, channel === undefined ? undefined : indexOf(channel)) : kind;
     };
     return {
       id: device.id,
@@ -39,8 +41,8 @@ export function deviceView({ config, devices } = {}) {
       type: typeOf(undefined),
       channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
       channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
-      channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, i)?.name ?? ''),
-      channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, i, kindOf(i) === METER_TOTAL_KIND)),
+      channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, indexOf(i))?.name ?? ''),
+      channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, indexOf(i), kindOf(i) === METER_TOTAL_KIND)),
       name: entry?.name ?? '',
       hidden: deviceHidden(entry),
       split: splitChannelsEnabled(entry),
@@ -101,9 +103,10 @@ export function applyView({ config, devices, selections } = {}) {
     // Cover/dimmer channels have no type dropdown, so their selections carry
     // no type; record a channel only when something is actually set.
     const kinds = Array.isArray(device.kinds) ? device.kinds : [];
+    const indexOf = (position) => (Array.isArray(device.indexes) ? device.indexes[position] : undefined) ?? position;
     const channels = (Array.isArray(sel?.channels) ? sel.channels : [])
       .map(({ channel, name, type, hidden }) => {
-        const channelEntry = { channel };
+        const channelEntry = { channel: indexOf(channel) };
         if (name) channelEntry.name = name;
         if (type) channelEntry.accessoryType = type;
         // The triphase total channel is hidden by DEFAULT, so only the

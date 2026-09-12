@@ -23,6 +23,8 @@ type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasT
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
 const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
 
+/** Shelly Plus Add-on components (probes, inputs) are numbered from 100. */
+const ADDON_INDEX_MIN = 100;
 /** The triphase total channel (em:0 only exists on three-phase meters): hidden by default, the phases already sum to it. */
 const isTriphaseTotal = (componentId: string): boolean => componentId === 'em:0';
 
@@ -142,6 +144,8 @@ const PROPERTY_MAP: PropertyRow[] = [
   // BooleanState's stateValue is TRUE when a leak is detected.
   { property: 'tC', cluster: 'temperatureMeasurement', convert: (v) => (isValidNumber(v, -273, 350) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['temperature'] },
   { property: 'value', cluster: 'relativeHumidityMeasurement', convert: (v) => (isValidNumber(v, 0, 100) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['humidity'] },
+  // Gen 2+ humidity components (H&T Gen3, add-on probes) report `rh`.
+  { property: 'rh', cluster: 'relativeHumidityMeasurement', convert: (v) => (isValidNumber(v, 0, 100) ? { measuredValue: Math.round(v * 100) } : undefined), kinds: ['humidity'] },
   { property: 'flood', cluster: 'booleanState', convert: (v) => (typeof v === 'boolean' ? { stateValue: v } : undefined), kinds: ['flood'] },
   // Door/Window: the protocol layer keeps the magnet state on the 'sensor'
   // component as contact_open; Matter's ContactSensor is true when CLOSED.
@@ -289,6 +293,14 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
       const kind = SENSOR_KIND_BY_NAME[component.name];
       // The Door/Window magnet lives on the generic 'Sensor' component; other devices' 'Sensor' components carry nothing we map.
       if (kind !== undefined && (kind !== 'contact' || component.hasProperty('contact_open'))) mapped.push({ component, kind });
+    }
+  } else {
+    // Shelly Plus Add-on probes (components 100+) ride along on relays and
+    // meters as extra sensor parts; the internal device temperature never
+    // lives in that range.
+    for (const [, component] of device) {
+      const kind = SENSOR_KIND_BY_NAME[component.name];
+      if ((kind === 'temperature' || kind === 'humidity') && component.index >= ADDON_INDEX_MIN) mapped.push({ component, kind });
     }
   }
   return mapped;
@@ -553,26 +565,33 @@ function composeAccessories(
   const typed: TypedComposable[] = visible.map((component) => ({ ...component, token: tokenFor(component) }));
   // Multi-channel names get an index suffix (tiles are renamed in the Home app);
   // sensor and meter parts get their measurement label instead.
-  const actuatorCount = typed.filter(({ kind }) => isSplittableKind(kind)).length;
+  const actuators = typed.filter(({ kind }) => isSplittableKind(kind));
+  const sensors = typed.filter(({ kind }) => isSensorKind(kind));
+  const countOfKind = (kind: ComponentKind): number => typed.filter((component) => component.kind === kind).length;
   const channelName = ({ componentId, index, kind }: Composable): string => {
     if (kind === 'meter') return `${displayName} ${meterPartLabel(componentId, index)}`;
-    if (isSensorKind(kind)) return `${displayName} ${SENSOR_PART_LABEL[kind]}`;
-    return actuatorCount <= 1 ? displayName : `${displayName} ${index + 1}`;
+    // Two add-on probes of the same kind get numbered (probe 1, probe 2).
+    if (isSensorKind(kind)) return `${displayName} ${SENSOR_PART_LABEL[kind]}${countOfKind(kind) > 1 && index >= ADDON_INDEX_MIN ? ` ${index - ADDON_INDEX_MIN + 1}` : ''}`;
+    return actuators.length <= 1 ? displayName : `${displayName} ${index + 1}`;
   };
+  const groupedSeed = (parts: TypedComposable[]): string => `${deviceId}|bridge|${parts.map(({ index, token }) => `${index}:${token}`).join(',')}${generationSuffix(generation)}`;
 
   // Sensor and meter parts never split into separate accessories (one
-  // physical unit / measurement channels of one meter).
+  // physical unit / measurement channels of one meter). A multi-channel
+  // device with meters stays one grouped accessory; without meters its
+  // channels split, and any add-on sensors form one accessory of their own.
   const base = { deviceId, deviceName: displayName, generation };
-  if (splitChannelsEnabled(entry) && typed.length > 1 && typed.every(({ kind }) => isSplittableKind(kind))) {
-    return typed.map((one) => {
+  if (splitChannelsEnabled(entry) && actuators.length > 1 && !typed.some(({ kind }) => kind === 'meter')) {
+    const split = actuators.map((one) => {
       // Split accessories can carry a per-channel name (grouped parts cannot
       // reach the Home app with one, so channel names only apply here).
       const name = channelConfig(entry, one.index)?.name ?? channelName(one);
       return composeOne(platform, base, [one], `${deviceId}|split|${one.index}:${one.token}${generationSuffix(generation)}`, name, template);
     });
+    if (sensors.length > 0) split.push(composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, parentClusters, channelName));
+    return split;
   }
-  const seed = `${deviceId}|bridge|${typed.map(({ index, token }) => `${index}:${token}`).join(',')}${generationSuffix(generation)}`;
-  return [composeOne(platform, base, typed, seed, displayName, template, parentClusters, channelName)];
+  return [composeOne(platform, base, typed, groupedSeed(typed), displayName, template, parentClusters, channelName)];
 }
 
 /** Builds the MatterAccessories for a live Shelly device (empty if it has no visible supported components). */
