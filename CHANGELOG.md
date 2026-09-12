@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Shelly Plus Add-on probes** ([#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12)): temperature and humidity probes attached to a Gen 2+ relay are exposed as sensor parts. On a single-channel device they join the device's accessory; on a device whose channels are split they form one extra "Sensors" accessory, so the split channels keep their identities and rooms. Two probes of the same kind are numbered. Devices with probes get their accessories re-created once (the probes are a composition change).
+- **Shelly Plus Add-on probes** ([#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12), confirmed on hardware): temperature and humidity probes attached to a Gen 2+ relay are exposed as sensor parts. On a single-channel device they join the device's accessory; on a device whose channels are split they form one extra "Sensors" accessory, so the split channels keep their identities and rooms. Two probes of the same kind are numbered. Devices with probes get their accessories re-created once (the probes are a composition change).
 
 ### Fixed
 
