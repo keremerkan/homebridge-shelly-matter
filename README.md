@@ -46,8 +46,9 @@ Matter on and HAP off.
   not listed per-device (no "Usages" tile, not in the power breakdown),
   regardless of accessory type, reporting shape, power topology, or endpoint
   structure. Certification is not the factor: an uncertified Shelly Gen4
-  paired directly is listed, a bridged accessory replicating a certified
-  plug's exact Matter structure is not. Homebridge exposes every plugin
+  paired directly is listed, and so is one of our own plugs when exposed as a
+  standalone uncertified Matter node, while the same plug behind the bridge
+  is not. Homebridge exposes every plugin
   accessory behind its bridge, so this is an Apple limitation, not a plugin
   gap (reported to Apple).
 - Commissioned controllers (fabrics) are shown in the Homebridge UI starting
