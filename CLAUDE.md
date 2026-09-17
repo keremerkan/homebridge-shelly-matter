@@ -213,11 +213,16 @@ needed anymore. engines enforces >=2.3.0.
   and "Show As" is only offered on outlet-typed accessories. Bridged tiles
   read power ONLY from the outlet's own endpoint (a sibling ElectricalSensor
   part shows 0W).
-- Apple's Energy view lists per-device usage ONLY for certified/native Matter
-  accessories (2026-07-25 conclusion by elimination: bridged devices are
-  counted in the whole-home total but never listed — not fixable by periodic
-  energy, NodeTopology, or Eve-parity dedicated sensor endpoints; Eve Energy
-  listed within SECONDS of gaining metering firmware).
+- Apple's Energy view lists per-device usage ONLY for accessories paired
+  DIRECTLY (not behind a bridge) - certification is NOT the gate: a natively
+  paired UNCERTIFIED Shelly 1PM Mini Gen4 is listed (#13, iOS 27 release,
+  2026-09-17) while bridged devices are counted in the whole-home total but
+  never listed (2026-07-25 elimination: not fixable by periodic energy,
+  NodeTopology, or Eve-parity dedicated sensor endpoints; Eve Energy listed
+  within SECONDS of gaining metering firmware). The July "certified-only"
+  wording was an artifact of never testing an uncertified native device.
+  Homebridge can only expose accessories behind its aggregator, so per-device
+  listing is unreachable from a plugin.
 - Removing a bridge routinely strands 2-3 bridged accessories as unremovable
   ghosts (survive Remove Anyway, room-deletion trick, macOS app, hub reboots).
 - Same-uniqueId reappearance after structural change → broken accessory records

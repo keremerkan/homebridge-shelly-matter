@@ -40,13 +40,16 @@ Matter on and HAP off.
   app's **"Show As" → Light** on the outlet afterwards — the display override
   does not affect wattage (verified against certified hardware as well), and
   "Show As" is only offered on outlet-typed accessories in the first place.
-- **Apple's Energy view lists individual devices only for certified (native)
-  Matter accessories.** Bridged accessories' consumption is counted in the
-  whole-home total, but they are not listed per-device — regardless of
-  reporting shape, power topology, or endpoint structure (we verified by
-  replicating a certified smart plug's exact Matter structure on this bridge).
-  A Homebridge bridge cannot carry a device attestation certificate, so this
-  is an Apple policy limitation, not a plugin gap.
+- **Apple's Energy view lists individual devices only for accessories paired
+  with Apple Home directly, not for accessories behind a bridge.** Bridged
+  accessories' consumption is counted in the whole-home total, but they are
+  not listed per-device (no "Usages" tile, not in the power breakdown),
+  regardless of accessory type, reporting shape, power topology, or endpoint
+  structure. Certification is not the factor: an uncertified Shelly Gen4
+  paired directly is listed, a bridged accessory replicating a certified
+  plug's exact Matter structure is not. Homebridge exposes every plugin
+  accessory behind its bridge, so this is an Apple limitation, not a plugin
+  gap (reported to Apple).
 - Commissioned controllers (fabrics) are shown in the Homebridge UI starting
   with v5.28.0 (plugin menu > Bridge Settings); this plugin also lists them in
   its own settings page ("Connected controllers").
