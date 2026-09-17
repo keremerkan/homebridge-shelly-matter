@@ -89,6 +89,21 @@ export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: nu
 export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: number, hiddenByDefault = false): boolean =>
   channelConfig(entry, channel)?.hidden ?? hiddenByDefault;
 
+/** The types a meter channel can be shown as: an electrical sensor (the default) or a virtual outlet whose tile shows the wattage. */
+export const METER_TYPES = ['meter', 'outlet'] as const;
+export type MeterType = (typeof METER_TYPES)[number];
+
+/**
+ * How a meter channel is shown. Only an EXPLICIT `outlet` counts - the
+ * channel's own setting, or the device's when the device has no relay
+ * channels (then the device setting cannot mean a relay). Never the id-based
+ * default: `shellyem*` ids default to outlet for their relay.
+ */
+export function resolveMeterType(entry: ShellyDeviceConfig | undefined, channel: number, deviceHasActuators: boolean): MeterType {
+  const chosen = channelConfig(entry, channel)?.accessoryType ?? (deviceHasActuators ? undefined : entry?.accessoryType);
+  return chosen === 'outlet' ? 'outlet' : 'meter';
+}
+
 /** The device (entry) is hidden from Matter altogether. */
 export const deviceHidden = (entry: ShellyDeviceConfig | undefined): boolean => entry?.hidden === true;
 

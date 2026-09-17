@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, powerMeteringEnabled, resolveAccessoryType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -30,9 +30,15 @@ export function deviceView({ config, devices } = {}) {
     const kindOf = (channel) => kinds?.[channel] ?? 'switch';
     // Config `channel` numbers are component indices (add-on probes are 100+), not table positions.
     const indexOf = (channel) => (Array.isArray(device.indexes) ? device.indexes[channel] : undefined) ?? channel;
+    const isMeterKind = (kind) => kind === 'meter' || kind === METER_TOTAL_KIND;
+    const hasActuators = kinds !== null && kinds.some(isSplittableKind);
     const typeOf = (channel) => {
       const kind = kindOf(channel ?? 0);
-      return kind === 'switch' ? resolveAccessoryType(entry, device.id, channel === undefined ? undefined : indexOf(channel)) : kind;
+      const index = channel === undefined ? undefined : indexOf(channel);
+      if (kind === 'switch') return resolveAccessoryType(entry, device.id, index);
+      // Meter channels: electrical sensor, or a virtual outlet showing the wattage on its tile.
+      if (isMeterKind(kind)) return resolveMeterType(entry, index ?? indexOf(0), hasActuators);
+      return kind;
     };
     return {
       id: device.id,
@@ -55,7 +61,7 @@ export function deviceView({ config, devices } = {}) {
       ...(kinds?.includes('gas') ? { gasAlarm: gasAlarmMode(entry) ?? 'off' } : {}),
     };
   });
-  return { types: [...ACCESSORY_TYPES], gasAlarmModes: [...GAS_ALARM_MODES], untested: UNTESTED_KINDS, rows };
+  return { types: [...ACCESSORY_TYPES], meterTypes: [...METER_TYPES], gasAlarmModes: [...GAS_ALARM_MODES], untested: UNTESTED_KINDS, rows };
 }
 
 /**
@@ -88,7 +94,8 @@ export function applyView({ config, devices, selections } = {}) {
     // Write the type explicitly (even when it matches the default) so the
     // devices list in the schema form shows the effective value, not blank.
     // Multi-channel devices carry no parent type - each channel has its own.
-    if (sel?.type) entry.accessoryType = sel.type;
+    // 'meter' is a meter channel's default, not a config value.
+    if (sel?.type && sel.type !== 'meter') entry.accessoryType = sel.type;
     // Power metering is configured in the schema form, not the table - carry it over.
     if (!powerMeteringEnabled(prior)) entry.powerMetering = false;
     // Sensor options come from the table where the row has the kind; a row
@@ -108,7 +115,7 @@ export function applyView({ config, devices, selections } = {}) {
       .map(({ channel, name, type, hidden }) => {
         const channelEntry = { channel: indexOf(channel) };
         if (name) channelEntry.name = name;
-        if (type) channelEntry.accessoryType = type;
+        if (type && type !== 'meter') channelEntry.accessoryType = type;
         // The triphase total channel is hidden by DEFAULT, so only the
         // opt-in (unchecking hide) is a deviation worth recording.
         if (kinds[channel] === METER_TOTAL_KIND) {

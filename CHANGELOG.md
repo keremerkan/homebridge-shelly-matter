@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-09-17
+
+### Added
+
+- **Meter channels as virtual outlets** ([#13](https://github.com/keremerkan/homebridge-shelly-matter/issues/13)): a meter channel (3EM phase, EM clamp, PM Mini) can be shown as an outlet, so Apple Home displays its live wattage on the tile (it shows tile wattage only for outlet types). Choose "Outlet" in the meter row's type dropdown, or set `accessoryType: "outlet"` on the channel (or on the device when it has no relay channels). The switch on such a tile does nothing. Changing it re-creates the accessory once.
+
 ## [0.9.1] - 2026-09-12
 
 ### Added

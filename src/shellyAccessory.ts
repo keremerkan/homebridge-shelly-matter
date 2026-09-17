@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
+import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -18,7 +18,7 @@ const gasTokenOf = (mode: GasAlarmMode): GasToken => `${mode}alarm`;
  * for gas detectors, the kind for everything else. Tokens are embedded in
  * part ids and identity seeds - never rename one.
  */
-type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasToken;
+type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasToken | 'meteroutlet';
 
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
 const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
@@ -345,6 +345,10 @@ const PART_SHAPES: Record<PartToken, PartShape> = {
   smokealarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
   coalarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('coState') } },
   meter: { kind: 'meter', deviceType: 'ElectricalSensor', clusters: { electricalPowerMeasurement: { activePower: 0 } } },
+  // A meter channel shown as a virtual plug (#13): Apple Home shows live
+  // wattage only on outlet tiles. Its switch has nothing to switch and is
+  // kept "on" (see handlersFor).
+  meteroutlet: { kind: 'meter', deviceType: 'OnOffOutlet', clusters: { onOff: { onOff: true }, electricalPowerMeasurement: { activePower: 0 } } },
 };
 const PART_TOKENS = Object.keys(PART_SHAPES) as PartToken[];
 /** The component kind a part identity token belongs to (unknown tokens from foreign caches read as switches). */
@@ -374,7 +378,13 @@ function clustersFor(component: ShellyComponent, token: PartToken, metering: boo
  * Handlers resolve the component at invocation time so they also work on
  * accessories re-registered from the cache before the device has connected.
  */
-function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId: string, kind: ComponentKind) {
+function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: string, componentId: string, partId: string, token: PartToken) {
+  const kind = kindOfToken(token);
+  if (token === 'meteroutlet') {
+    // Nothing to switch: whatever a controller sends, the plug stays on.
+    const keepOn = (): void => void platform.matter.updateAccessoryState(uuid, 'onOff', { onOff: true }, partId);
+    return { onOff: { on: keepOn, off: keepOn } };
+  }
   // Sensors and meters are read-only: no commands, no handlers.
   if (isSensorKind(kind) || kind === 'meter') return undefined;
   const resolve = (action: string): ShellyComponent | undefined => {
@@ -497,7 +507,7 @@ function composeOne(
       displayName: partNameFor(component),
       deviceType: matterDeviceTypeFor(platform, component.token),
       clusters: component.clustersFor(component.token),
-      handlers: handlersFor(platform, uuid, deviceId, component.componentId, partId, component.kind),
+      handlers: handlersFor(platform, uuid, deviceId, component.componentId, partId, component.token),
     };
   });
   const context: ShellyAccessoryContext = { ...base, partTypes, partComponents, ...(Object.keys(partMeters).length ? { partMeters } : {}) };
@@ -557,9 +567,11 @@ function composeAccessories(
   const displayName = entry?.name ?? fallbackName;
   // Each component's token is resolved exactly once and feeds both the
   // identity seed and the part construction, so the two cannot drift.
+  const hasActuators = visible.some(({ kind }) => isSplittableKind(kind));
   const tokenFor = (component: Composable): PartToken => {
     if (component.kind === 'switch') return resolveAccessoryType(entry, deviceId, component.index);
     if (component.kind === 'gas') return gasTokenOf(gas ?? 'smoke'); // gas parts are only visible with a chosen alarm
+    if (component.kind === 'meter') return resolveMeterType(entry, component.index, hasActuators) === 'outlet' ? 'meteroutlet' : 'meter';
     return component.kind;
   };
   const typed: TypedComposable[] = visible.map((component) => ({ ...component, token: tokenFor(component) }));

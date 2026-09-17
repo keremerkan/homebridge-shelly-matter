@@ -85,18 +85,24 @@
     /** Type cell: a dropdown for switch channels, a fixed label (with untested badge) otherwise. */
     function typeCellHtml(row, channel) {
       const kind = channel === undefined ? row.kind : row.channelKinds[channel];
-      if (kind !== 'switch') {
+      const meterRow = kind === 'meter' || kind === 'meter-total';
+      if (kind !== 'switch' && !meterRow) {
         const badge = view.untested.includes(kind) ? UNTESTED_BADGE : '';
         const title = kind === 'meter-total' ? ' title="The phases already sum to this total, so it is hidden by default - exposing both would double-count energy in Apple Home. Untick Hide to expose it."' : '';
         return `<span${title}>${typeLabel(kind)}</span>${badge}`;
       }
       const current = channel === undefined ? row.type : row.channelTypes[channel];
       const key = channel === undefined ? row.id : `${row.id}:${channel}`;
-      const options = view.types.map((t) => {
-        const label = typeLabel(t) + (t === row.defaultType ? ' (default)' : '');
+      // Meter rows choose between the electrical sensor and a virtual outlet
+      // (Apple Home shows live wattage only on outlet tiles; its switch does nothing).
+      const meterLabel = { meter: kind === 'meter-total' ? 'Meter (total)' : 'Meter', outlet: 'Outlet (wattage on the tile)' };
+      const choices = meterRow ? view.meterTypes : view.types;
+      const options = choices.map((t) => {
+        const label = meterRow ? meterLabel[t] ?? t : typeLabel(t) + (t === row.defaultType ? ' (default)' : '');
         return `<option value="${t}" ${current === t ? 'selected' : ''}>${label}</option>`;
       }).join('');
-      return `<select class="custom-select custom-select-sm" data-entry="${escapeAttr(key)}">${options}</select>`;
+      const title = meterRow ? ' title="Electrical sensor: the reading counts into the Energy total but the tile shows nothing. Outlet: the tile shows the live wattage; the switch on it does nothing."' : '';
+      return `<select class="custom-select custom-select-sm" data-entry="${escapeAttr(key)}"${title}>${options}</select>`;
     }
 
     /** Sensor cell: fixed measurement labels, no type choice ("temperature + humidity"). */

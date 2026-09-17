@@ -66,7 +66,8 @@
                     "switch"
                   ]
                 }
-              ]
+              ],
+              "description": ". On a meter channel, outlet shows it as a virtual outlet with the wattage on the tile (its switch does nothing)."
             },
             "hidden": {
               "title": "Hide (do not expose to Matter)",
