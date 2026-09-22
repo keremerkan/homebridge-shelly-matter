@@ -213,16 +213,21 @@ needed anymore. engines enforces >=2.3.0.
   and "Show As" is only offered on outlet-typed accessories. Bridged tiles
   read power ONLY from the outlet's own endpoint (a sibling ElectricalSensor
   part shows 0W).
-- Apple's Energy view lists per-device usage ONLY for accessories paired
-  DIRECTLY (not behind a bridge) - certification is NOT the gate: a natively
-  paired UNCERTIFIED Shelly 1PM Mini Gen4 is listed (#13, iOS 27 release,
-  2026-09-17) while bridged devices are counted in the whole-home total but
-  never listed (2026-07-25 elimination: not fixable by periodic energy,
-  NodeTopology, or Eve-parity dedicated sensor endpoints; Eve Energy listed
-  within SECONDS of gaining metering firmware). The July "certified-only"
-  wording was an artifact of never testing an uncertified native device.
-  Homebridge can only expose accessories behind its aggregator, so per-device
-  listing is unreachable from a plugin.
+- Apple's Energy view (iOS 27) has TWO separate gates. (1) The per-device
+  POWER BREAKDOWN lists only accessories paired DIRECTLY (not behind a
+  bridge); certification is NOT the gate: a natively paired UNCERTIFIED
+  Shelly 1PM Mini Gen4 is listed (#13, 2026-09-17) and so were our own
+  standalone matter.js test nodes (test VID 0xFFF1) within minutes, while
+  bridged devices are counted in the whole-home total but never listed
+  (2026-07-25 elimination: not fixable by periodic energy, NodeTopology, or
+  Eve-parity dedicated sensor endpoints). Homebridge can only expose
+  accessories behind its aggregator, so per-device listing is unreachable
+  from a plugin. (2) The USAGES history tiles need a connected electricity
+  account (US utilities only, 2026-09-22 conclusion): no accessory in a home
+  without one gets a tile, not even certified Eve Energy, and a test node
+  reproducing the Gen4's full cluster tree (matter-survey.org) plus its root
+  Wi-Fi/OTA clusters did not either after days. Do not chase cluster shapes
+  for the Usages tile again.
 - Removing a bridge routinely strands 2-3 bridged accessories as unremovable
   ghosts (survive Remove Anyway, room-deletion trick, macOS app, hub reboots).
 - Same-uniqueId reappearance after structural change → broken accessory records

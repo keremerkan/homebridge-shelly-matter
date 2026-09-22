@@ -43,14 +43,16 @@ Matter on and HAP off.
 - **Apple's Energy view lists individual devices only for accessories paired
   with Apple Home directly, not for accessories behind a bridge.** Bridged
   accessories' consumption is counted in the whole-home total, but they are
-  not listed per-device (no "Usages" tile, not in the power breakdown),
-  regardless of accessory type, reporting shape, power topology, or endpoint
-  structure. Certification is not the factor: an uncertified Shelly Gen4
-  paired directly is listed, and so is one of our own plugs when exposed as a
-  standalone uncertified Matter node, while the same plug behind the bridge
-  is not. Homebridge exposes every plugin
-  accessory behind its bridge, so this is an Apple limitation, not a plugin
-  gap (reported to Apple).
+  not listed in the power breakdown, regardless of accessory type, reporting
+  shape, power topology or endpoint structure. Certification is not the
+  factor: an uncertified Shelly Gen4 paired directly is listed, and so is one
+  of our own plugs when exposed as a standalone uncertified Matter node,
+  while the same plug behind the bridge is not. Homebridge exposes every
+  plugin accessory behind its bridge, so this is an Apple limitation, not a
+  plugin gap (reported to Apple). The per-device usage history ("Usages"
+  tiles) is a separate feature that requires a connected electricity
+  account, currently offered with participating US utilities only; no
+  accessory, bridged or direct, gets it without one.
 - Commissioned controllers (fabrics) are shown in the Homebridge UI starting
   with v5.28.0 (plugin menu > Bridge Settings); this plugin also lists them in
   its own settings page ("Connected controllers").
