@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
-import { channelConfig, configForDevice, deviceConfigs, deviceHidden, METER_TOTAL_KIND } from './deviceConfig.js';
+import { configForDevice, deviceConfigs, deviceHidden, isSplittableKind, METER_TOTAL_KIND, meterConfig } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
 import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
@@ -648,11 +648,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // Explain the inverted default so a "missing" channel is not a mystery:
     // on three-phase meters the total channel stays hidden unless opted in.
     const hiddenTotal = mapped.find(({ total }) => total === true);
-    if (hiddenTotal && channelConfig(configForDevice(this.config, device.id, host), hiddenTotal.component.index)?.hidden === undefined) {
+    const actuatorIndexes = mapped.filter(({ kind }) => isSplittableKind(kind)).map(({ component }) => component.index);
+    if (hiddenTotal && meterConfig(configForDevice(this.config, device.id, host), hiddenTotal.component.index, actuatorIndexes)?.hidden === undefined) {
       this.log.info(
         `Shelly ${device.id}: the three-phase total channel is hidden by default - the phases already sum to it, `
         + 'and exposing both would double-count energy in Apple Home. Untick its Hide box in the plugin settings '
-        + '(or set { "channel": 0, "hidden": false }) to expose it.',
+        + '(or set { "meter": 0, "hidden": false }) to expose it.',
       );
     }
     let generation = this.generationByDevice.get(device.id) ?? 0;

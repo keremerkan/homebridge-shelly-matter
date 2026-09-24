@@ -110,7 +110,7 @@
             "channels": {
               "title": "Channels (multi-channel devices only)",
               "type": "array",
-              "description": "Per-channel settings; channels without an entry use the device settings. Channel numbers are 0-based, as on the device.",
+              "description": "Per-channel settings; channels without an entry use the device settings. An entry addresses a relay, cover or dimmer channel by 'channel' and an energy meter channel (EM/3EM clamp or phase, PM Mini) by 'meter'; both are 0-based, as on the device.",
               "condition": {
                 "functionBody": "try { const c = model.devices[arrayIndices[0]].channels; return Array.isArray(c) && c.length > 1; } catch (e) { return false; }"
               },
@@ -119,6 +119,11 @@
                 "properties": {
                   "channel": {
                     "title": "Channel (0-based)",
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "meter": {
+                    "title": "Meter channel (0-based)",
                     "type": "integer",
                     "minimum": 0
                   },

@@ -26,9 +26,15 @@ export const isSplittableKind = (kind: string): boolean => kind === 'switch' || 
 /** devices.json kind marker of the triphase total channel (a meter that is hidden by default). */
 export const METER_TOTAL_KIND = 'meter-total';
 
-/** Per-channel settings of a multi-channel device; `channel` is 0-based, as on the device. */
+/**
+ * Per-channel settings of a multi-channel device. An entry addresses a relay,
+ * cover, dimmer or sensor by `channel` and a meter by `meter` (both 0-based
+ * component indices, as on the device): on EM-style devices the relay and
+ * the first clamp are both index 0.
+ */
 export interface ShellyChannelConfig {
   channel?: number;
+  meter?: number;
   /** Only used in the Home app when the device's channels are split into separate accessories. */
   name?: string;
   accessoryType?: AccessoryType;
@@ -76,18 +82,28 @@ export function configForDevice(config: PlatformConfig, deviceId: string, host?:
   return entries.find((entry) => entry.device === deviceId) ?? (host !== undefined ? entries.find((entry) => entry.device === undefined && entry.host === host) : undefined);
 }
 
-export function channelConfig(entry: ShellyDeviceConfig | undefined, channel: number): ShellyChannelConfig | undefined {
+function findChannel(entry: ShellyDeviceConfig | undefined, match: (c: ShellyChannelConfig) => boolean): ShellyChannelConfig | undefined {
   if (!Array.isArray(entry?.channels)) return undefined;
-  return entry.channels.find((c) => c !== null && typeof c === 'object' && c.channel === channel);
+  return entry.channels.find((c) => c !== null && typeof c === 'object' && match(c));
 }
+
+export const channelConfig = (entry: ShellyDeviceConfig | undefined, channel: number): ShellyChannelConfig | undefined =>
+  findChannel(entry, (c) => c.channel === channel);
+
+/**
+ * A meter's entry. Meters were addressed by `channel` before `meter` existed;
+ * such an entry still applies unless one of the device's actuators (relay,
+ * cover, dimmer - hidden ones included) has that index and owns it.
+ */
+export const meterConfig = (entry: ShellyDeviceConfig | undefined, meter: number, actuatorIndexes: readonly number[]): ShellyChannelConfig | undefined =>
+  findChannel(entry, (c) => c.meter === meter) ?? (actuatorIndexes.includes(meter) ? undefined : channelConfig(entry, meter));
 
 /**
  * Whether a channel is hidden: its own setting, else the kind's default. The
  * triphase total hides by default - the phases already sum to it, and exposing
  * both would double-count energy in Apple Home's whole-home total.
  */
-export const channelHidden = (entry: ShellyDeviceConfig | undefined, channel: number, hiddenByDefault = false): boolean =>
-  channelConfig(entry, channel)?.hidden ?? hiddenByDefault;
+export const channelHidden = (config: ShellyChannelConfig | undefined, hiddenByDefault = false): boolean => config?.hidden ?? hiddenByDefault;
 
 /** The types a meter channel can be shown as: an electrical sensor (the default) or a virtual outlet whose tile shows the wattage. */
 export const METER_TYPES = ['meter', 'outlet'] as const;
@@ -99,8 +115,8 @@ export type MeterType = (typeof METER_TYPES)[number];
  * channels (then the device setting cannot mean a relay). Never the id-based
  * default: `shellyem*` ids default to outlet for their relay.
  */
-export function resolveMeterType(entry: ShellyDeviceConfig | undefined, channel: number, deviceHasActuators: boolean): MeterType {
-  const chosen = channelConfig(entry, channel)?.accessoryType ?? (deviceHasActuators ? undefined : entry?.accessoryType);
+export function resolveMeterType(entry: ShellyDeviceConfig | undefined, meter: number, actuatorIndexes: readonly number[]): MeterType {
+  const chosen = meterConfig(entry, meter, actuatorIndexes)?.accessoryType ?? (actuatorIndexes.length > 0 ? undefined : entry?.accessoryType);
   return chosen === 'outlet' ? 'outlet' : 'meter';
 }
 

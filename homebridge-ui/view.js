@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -15,6 +15,7 @@ const UNTESTED_KINDS = ['smoke'];
  * (possibly unsaved) config so edits resolve live. Switch channels carry a
  * configurable type; cover/dimmer channels have a fixed kind (no dropdown).
  */
+const isMeterKind = (kind) => kind === 'meter' || kind === METER_TOTAL_KIND;
 const platformConfigOf = (config) => (config && typeof config === 'object' ? config : {});
 const listedDevices = (devices) => (Array.isArray(devices) ? devices : []).filter((device) => typeof device?.id === 'string');
 
@@ -30,14 +31,15 @@ export function deviceView({ config, devices } = {}) {
     const kindOf = (channel) => kinds?.[channel] ?? 'switch';
     // Config `channel` numbers are component indices (add-on probes are 100+), not table positions.
     const indexOf = (channel) => (Array.isArray(device.indexes) ? device.indexes[channel] : undefined) ?? channel;
-    const isMeterKind = (kind) => kind === 'meter' || kind === METER_TOTAL_KIND;
-    const hasActuators = kinds !== null && kinds.some(isSplittableKind);
+    const actuatorIndexes = (kinds ?? []).flatMap((kind, channel) => (isSplittableKind(kind) ? [indexOf(channel)] : []));
+    // Meters are addressed by `meter`, everything else by `channel`.
+    const configOf = (channel) => (isMeterKind(kindOf(channel)) ? meterConfig(entry, indexOf(channel), actuatorIndexes) : channelConfig(entry, indexOf(channel)));
     const typeOf = (channel) => {
       const kind = kindOf(channel ?? 0);
       const index = channel === undefined ? undefined : indexOf(channel);
       if (kind === 'switch') return resolveAccessoryType(entry, device.id, index);
       // Meter channels: electrical sensor, or a virtual outlet showing the wattage on its tile.
-      if (isMeterKind(kind)) return resolveMeterType(entry, index ?? indexOf(0), hasActuators);
+      if (isMeterKind(kind)) return resolveMeterType(entry, index ?? indexOf(0), actuatorIndexes);
       return kind;
     };
     return {
@@ -47,8 +49,8 @@ export function deviceView({ config, devices } = {}) {
       type: typeOf(undefined),
       channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
       channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
-      channelNames: Array.from({ length: channelCount }, (_, i) => channelConfig(entry, indexOf(i))?.name ?? ''),
-      channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(entry, indexOf(i), kindOf(i) === METER_TOTAL_KIND)),
+      channelNames: Array.from({ length: channelCount }, (_, i) => configOf(i)?.name ?? ''),
+      channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(configOf(i), kindOf(i) === METER_TOTAL_KIND)),
       name: entry?.name ?? '',
       hidden: deviceHidden(entry),
       split: splitChannelsEnabled(entry),
@@ -113,7 +115,7 @@ export function applyView({ config, devices, selections } = {}) {
     const indexOf = (position) => (Array.isArray(device.indexes) ? device.indexes[position] : undefined) ?? position;
     const channels = (Array.isArray(sel?.channels) ? sel.channels : [])
       .map(({ channel, name, type, hidden }) => {
-        const channelEntry = { channel: indexOf(channel) };
+        const channelEntry = isMeterKind(kinds[channel]) ? { meter: indexOf(channel) } : { channel: indexOf(channel) };
         if (name) channelEntry.name = name;
         if (type && type !== 'meter') channelEntry.accessoryType = type;
         // The triphase total channel is hidden by DEFAULT, so only the
@@ -125,7 +127,7 @@ export function applyView({ config, devices, selections } = {}) {
         }
         return channelEntry;
       })
-      .filter((channelEntry) => Object.keys(channelEntry).length > 1); // more than just `channel` = a recorded deviation
+      .filter((channelEntry) => Object.keys(channelEntry).length > 1); // more than just the address = a recorded deviation
     if (channels.length > 0) entry.channels = channels;
     // A device the plugin has not connected to yet (no kinds recorded) shows
     // no channel rows, so its hand-written channel settings must survive.

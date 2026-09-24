@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
+import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -271,16 +271,17 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
   }
   // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
-  // the protocol layer): a meter with a same-index actuator merges its
-  // measurements onto that endpoint (the shape Apple Home fully supports -
-  // live tile wattage on an outlet); meters without one become their own
-  // ElectricalSensor part.
+  // the protocol layer). Only a Gen 1 relay/roller/dimmer meter (meter:N)
+  // measures its same-index actuator, and merges its measurements onto that
+  // endpoint. Every other meter is its own channel: an EM clamp measures
+  // whatever it is clamped around, and the relay on EM-style devices is an
+  // independent contactor output.
   for (const [, component] of device) {
     if (component.name !== 'PowerMeter') continue;
     // Gen 1 relays without metering still report a dummy meter (Shelly 1:
     // {power: 0, is_valid: true}); real Gen 1 meters carry a 'total' counter.
     if (component.id.startsWith('meter:') && !component.hasProperty('total')) continue;
-    const actuator = mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter);
+    const actuator = component.id.startsWith('meter:') ? mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter) : undefined;
     if (actuator) actuator.meter = component;
     else mapped.push({ component, kind: 'meter', ...(isTriphaseTotal(component.id) ? { total: true } : {}) });
   }
@@ -451,7 +452,13 @@ interface ShellyAccessoryContext {
    */
   generation?: number;
   partTypes: Record<string, PartToken>;
-  /** Meter component merged onto a part's endpoint, by part id (EM-style devices). */
+  /**
+   * Indexes of ALL the device's actuators, hidden ones included (absent when
+   * it has none): meter config lookups depend on them, and a cache rebuild
+   * cannot see a hidden relay.
+   */
+  actuatorIndexes?: number[];
+  /** Meter component merged onto a part's endpoint, by part id (Gen 1 relay meters). */
   partMeters?: Record<string, string>;
   partComponents: Record<string, string>;
 }
@@ -474,6 +481,9 @@ interface Composable {
   clustersFor: (token: PartToken) => Record<string, ClusterState>;
 }
 
+/** The indexes of the actuators (relays, covers, dimmers) among the given components. */
+const actuatorIndexesOf = (components: Composable[]): number[] => components.filter(({ kind }) => isSplittableKind(kind)).map(({ index }) => index);
+
 interface TypedComposable extends Composable {
   token: PartToken;
 }
@@ -484,7 +494,7 @@ type AccessoryTemplate = Pick<MatterAccessory, 'serialNumber' | 'manufacturer' |
 /** One composed accessory (BridgedNode parent + one part per given component); parts are named after the accessory unless told otherwise. */
 function composeOne(
   platform: ShellyMatterPlatform,
-  base: Pick<ShellyAccessoryContext, 'deviceId' | 'deviceName' | 'generation'>,
+  base: Pick<ShellyAccessoryContext, 'deviceId' | 'deviceName' | 'generation' | 'actuatorIndexes'>,
   typed: TypedComposable[],
   seed: string,
   displayName: string,
@@ -547,17 +557,21 @@ function composeAccessories(
   fallbackName: string,
   generation: number,
   all: Composable[],
+  actuatorIndexes: number[],
   template: AccessoryTemplate,
   parentClusters?: Record<string, ClusterState>,
 ): MatterAccessory[] {
   const entry = configForDevice(platform.config, deviceId, host);
+  const configOf = ({ kind, index }: Composable) => (kind === 'meter' ? meterConfig(entry, index, actuatorIndexes) : channelConfig(entry, index));
   const metering = powerMeteringEnabled(entry);
   const vibration = vibrationAsMotionEnabled(entry);
   const gas = gasAlarmMode(entry);
   const rank = (component: Composable): number => (isSplittableKind(component.kind) ? 0 : 1);
   const visible = all
-    .filter(({ componentId, index, kind }) =>
-      (kind !== 'meter' || metering) && (kind !== 'vibration' || vibration) && (kind !== 'gas' || gas !== undefined) && !channelHidden(entry, index, isTriphaseTotal(componentId)))
+    .filter((component) => {
+      const { kind } = component;
+      return (kind !== 'meter' || metering) && (kind !== 'vibration' || vibration) && (kind !== 'gas' || gas !== undefined) && !channelHidden(configOf(component), isTriphaseTotal(component.componentId));
+    })
     // Canonical order - actuators first, then measurement parts, each by
     // index (stable sort) - so live builds and cache rebuilds seed the
     // same identity whatever order the components arrived in.
@@ -567,11 +581,10 @@ function composeAccessories(
   const displayName = entry?.name ?? fallbackName;
   // Each component's token is resolved exactly once and feeds both the
   // identity seed and the part construction, so the two cannot drift.
-  const hasActuators = visible.some(({ kind }) => isSplittableKind(kind));
   const tokenFor = (component: Composable): PartToken => {
     if (component.kind === 'switch') return resolveAccessoryType(entry, deviceId, component.index);
     if (component.kind === 'gas') return gasTokenOf(gas ?? 'smoke'); // gas parts are only visible with a chosen alarm
-    if (component.kind === 'meter') return resolveMeterType(entry, component.index, hasActuators) === 'outlet' ? 'meteroutlet' : 'meter';
+    if (component.kind === 'meter') return resolveMeterType(entry, component.index, actuatorIndexes) === 'outlet' ? 'meteroutlet' : 'meter';
     return component.kind;
   };
   const typed: TypedComposable[] = visible.map((component) => ({ ...component, token: tokenFor(component) }));
@@ -592,7 +605,7 @@ function composeAccessories(
   // physical unit / measurement channels of one meter). A multi-channel
   // device with meters stays one grouped accessory; without meters its
   // channels split, and any add-on sensors form one accessory of their own.
-  const base = { deviceId, deviceName: displayName, generation };
+  const base = { deviceId, deviceName: displayName, generation, ...(actuatorIndexes.length > 0 ? { actuatorIndexes } : {}) };
   if (splitChannelsEnabled(entry) && actuators.length > 1 && !typed.some(({ kind }) => kind === 'meter')) {
     const split = actuators.map((one) => {
       // Split accessories can carry a per-channel name (grouped parts cannot
@@ -623,7 +636,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   const battery = device.getComponent('battery');
   const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind)) ? { powerSource: powerSourceClusterFor(battery) } : undefined;
   const template: AccessoryTemplate = { serialNumber: device.mac, manufacturer: 'Shelly', model: device.model, firmwareRevision: device.firmware };
-  return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, template, parentClusters);
+  return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, parentClusters);
 }
 
 /** The device id a cached accessory belongs to, if it is one of ours. */
@@ -694,6 +707,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   const components = new Map<string, Composable>();
   let template: MatterAccessory | undefined;
   let cachedDeviceName: string | undefined;
+  let cachedActuatorIndexes: number[] | undefined;
   const cachedGeneration = cachedGenerationOf(cachedList);
   // Metering switched off since the cache was written strips clusters from
   // parts that keep their identity - a structural change, which must rotate
@@ -704,6 +718,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
     if (!context?.partComponents || !context.partTypes) continue;
     template ??= cached;
     cachedDeviceName ??= context.deviceName;
+    cachedActuatorIndexes ??= context.actuatorIndexes;
     for (const part of cached.parts ?? []) {
       const componentId = context.partComponents[part.id];
       if (componentId === undefined || components.has(componentId)) continue;
@@ -736,6 +751,8 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       cachedDeviceName ?? shell.displayName,
       generation,
       [...components.values()],
+      // Caches written before actuatorIndexes existed: the cached (visible) actuators.
+      cachedActuatorIndexes ?? actuatorIndexesOf([...components.values()]),
       { serialNumber: shell.serialNumber, manufacturer: shell.manufacturer, model: shell.model, firmwareRevision: shell.firmwareRevision },
       powerSource ? { powerSource } : undefined,
     );

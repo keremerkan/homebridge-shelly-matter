@@ -51,7 +51,12 @@ No HAP accessories are published; the plugin runs best in a child bridge with
 
 Single `devices` array; one entry per physical device:
 `{device: id, host?, name?, accessoryType?: light|outlet|switch, hidden?,
-powerMetering?, channels?: [{channel (0-based), name?, accessoryType?, hidden?}]}`.
+powerMetering?, channels?: [{channel | meter (0-based), name?, accessoryType?, hidden?}]}`.
+Meters are addressed by `meter` (`meterConfig`), everything else by `channel`:
+on EM devices the relay and the first clamp are both index 0. Legacy `channel`
+entries still reach a meter unless an actuator (hidden ones included) owns the
+index; the actuator indexes ride in the accessory context (`actuatorIndexes`)
+because a cache rebuild cannot see a hidden relay.
 Resolution: channel setting → device setting → kind default (id contains
 'plug' → outlet, else light). Entries record deviations, EXCEPT `host` which
 the settings UI always auto-fills so mDNS can be disabled later. The settings
@@ -61,8 +66,9 @@ table is the primary editor; it rewrites entries wholesale on change.
 temperature/humidity/flood/contact/illuminance/vibration/smoke/gas/meter; the kind predicates, `channelHidden`,
 `powerMeteringEnabled` and `resolveAccessoryType` live there too so the
 settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
-no type choice; a meter with a same-index actuator merges onto that endpoint
-(`context.partMeters`). Tested/untested status per model lives in the README
+no type choice; only a Gen 1 relay/roller/dimmer meter (`meter:N`) merges onto
+its same-index actuator's endpoint (`context.partMeters`) - EM clamps measure
+whatever they are clamped around, so each is its own meter channel (#14). Tested/untested status per model lives in the README
 device table. devices.json records per-channel `kinds` for the UI.
 
 ## Hard-won constraints (do not silently change)
@@ -239,7 +245,9 @@ device table. devices.json records per-channel `kinds` for the UI.
   the EM Gen4 fixture is hand-assembled from issue #7 and cannot be re-fetched).
   `fixtures/harness.mjs` holds the shared stubs (fake Matter api/platform, hb
   log, fixture loop) the scripts import; `fixtures/sleeping-device.mjs` covers
-  the sleeping-device paths;
+  the sleeping-device paths; `fixtures/meter-config.mjs` covers meter
+  addressing (`meter` vs legacy `channel`, settings UI round trip, upgrade
+  from a merged-clamp cache);
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,
