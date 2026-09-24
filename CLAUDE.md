@@ -46,9 +46,6 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   array from the table's neutral selections (entry shape, host auto-fill,
   channel nesting, powerMetering carry-over). The browser page only renders
   rows and harvests DOM values. The UI needs `dist/` built to work.
-- The old `patches/` directory and `UPSTREAM-ISSUES.md` evidence log were
-  removed once every fix shipped in Homebridge 2.3.0 - the upstream PRs
-  (#3969-#3977) are the record now; see git history for the files.
 
 ## Config model
 
@@ -78,10 +75,10 @@ device table. devices.json records per-channel `kinds` for the UI.
   A live rotation on a commissioned bridge desyncs Apple Home: the bridge
   record is rebuilt ("Matter Accessory" name, devices vanish) and only a hub
   reboot + a few minutes heals it (validated 2026-07-25). Offline transitions
-  are handled like reboots. This replaced the old REESTABLISH_QUIET_MS 5s
-  delay, which had begun pushing plugin registrations PAST the deferred
-  online point (the hub resubscribed 3s before the rotation) - registering
-  immediately is what keeps the node offline until we are done. Live
+  are handled like reboots. Register immediately, with no settle delay:
+  that is what keeps the deferred node offline until reconciliation is done
+  (a delay pushes registrations past the online point, and the hub
+  resubscribes before the rotation). Live
   rotations remain only for genuine device-shape changes (e.g. a 2PM
   switching profile while Homebridge runs).
 - **`registerVerified()` — register, then POLL before re-registering**: on
@@ -180,12 +177,6 @@ device table. devices.json records per-channel `kinds` for the UI.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
-## Upstream Homebridge status
-
-All the core Matter fixes this plugin depended on ship in Homebridge 2.3.0
-(#3969, #3970's items, #3972, #3973, #3976, #3977) - no dist patches are
-needed anymore. engines enforces >=2.3.0.
-
 ## Homebridge/Matter operational knowledge
 
 - **matter.js storage lock**: a quick restart where the old process still
@@ -272,7 +263,7 @@ needed anymore. engines enforces >=2.3.0.
 
 ## Release checklist (pre-publish)
 
-- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it: `git archive <tag> src` into a scratch dir, copy the vendored files over, re-apply the local changes listed above (import rewrites, three log demotions, mdns warn demotion, wsClient port skip, UDP gate; `diff -u` of our tree against the previously vendored tag gives the patch set), diff, then build + all fixture suites + identity diff + rig
+- Check upstream Luligu/matterbridge-shelly for new releases (`gh release list`); if the vendored `src/shelly/` layer is behind, sync it: `git archive <tag> src` into a scratch dir, copy the vendored files over, re-apply every local change listed under "Layout and provenance" (`diff -u` of our tree against the previously vendored tag gives the patch set), diff, then build + all fixture suites + identity diff + rig
 - Test on live server + real devices before any npm publish (user publishes)
 - GitHub repo public + issues on, releases per version (Verified requirements;
   auto-discovery is allowed; plugin must not start unless configured — already
