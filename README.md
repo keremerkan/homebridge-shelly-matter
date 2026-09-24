@@ -169,9 +169,9 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
 | Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
-| Shelly EM Gen4 | `shellyemg4` | relay, plus each clamp as its own meter channel: electrical sensor, or virtual outlet with tile wattage (`{ "meter": 0, "accessoryType": "outlet" }`) | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
+| Shelly EM Gen4 | `shellyemg4` | relay as outlet, plus each clamp as its own meter channel: electrical sensor, or virtual outlet with tile wattage (`{ "meter": 0, "accessoryType": "outlet" }`); `clampOnRelay` shows the first clamp on the relay tile instead | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
 | Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints, or virtual outlets with tile wattage (`accessoryType: "outlet"` per phase) (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "meter": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
-| Other energy meters (Gen 1 EM / 3EM, Pro EM-50, PM Mini) | `shellyem`, `shellyem3`, `shellyproem50`, `shellypmmini` … | each clamp/channel as its own meter channel: electrical sensor, or virtual outlet with tile wattage; the relay, where one exists, is exposed on its own (it drives a contactor, the clamps measure independently); Apple shows no tile for an electrical sensor | 🟡 [#14](https://github.com/keremerkan/homebridge-shelly-matter/issues/14) |
+| Other energy meters (Gen 1 EM / 3EM, Pro EM-50, PM Mini) | `shellyem`, `shellyem3`, `shellyproem50`, `shellypmmini` … | each clamp/channel as its own meter channel: electrical sensor, or virtual outlet with tile wattage; the relay, where one exists, is exposed on its own as an outlet (it drives a contactor, the clamps measure independently; `clampOnRelay` shows the first clamp on it); Apple shows no tile for an electrical sensor | 🟡 [#14](https://github.com/keremerkan/homebridge-shelly-matter/issues/14) |
 | TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
 | BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
@@ -223,6 +223,7 @@ Most configuration happens in the plugin settings UI: discovered devices appear 
 - `powerMetering` — set `false` to drop the power/energy clusters on a metering device.
 - `vibrationAsMotion` — Door/Window sensors only (in the settings table: "impact as motion"): set `true` to expose the vibration (impact) detection as a motion sensor; an impact shows as motion for 10 seconds, each new impact restarts that window (Matter has no vibration sensor type, so Apple Home shows it as motion; off by default).
 - `gasAlarm` — Shelly Gas only (in the settings table: "alarm shown as"): `smoke` or `co` exposes the detector's alarm as a smoke or carbon monoxide alarm (mild gas = warning, heavy gas = critical; the ppm value is not shown). Matter has no gas detector type, so this is a deliberate re-mapping; not exposed by default. The detection itself is a device setting: enable vibration and raise "Vibration sensitivity" in the Shelly app (the factory default of 50 is often too low; 100 works).
+- `clampOnRelay` — EM devices with a relay (Pro EM-50, EM Gen4, Gen 1 EM / 3EM; in the settings table: "first clamp on the relay"): set `true` to show the first clamp's power and energy on the relay's accessory instead of as a meter channel of its own, so the relay tile shows the wattage (as an outlet) and still switches. Use it when that clamp measures the circuit the relay switches; the relay itself measures nothing. Off by default.
 
 Devices need no entry at all when the defaults fit — entries only record deviations.
 
@@ -260,7 +261,7 @@ Which transport for which device:
 ## Changing a device's accessory type or split setting
 
 Changing the accessory type of a device or channel, hiding channels, toggling
-`splitChannels`, `powerMetering`, `vibrationAsMotion` or `gasAlarm` — all
+`splitChannels`, `powerMetering`, `vibrationAsMotion`, `gasAlarm` or `clampOnRelay` — all
 composition changes are applied when the bridge restarts, so **restart
 Homebridge (or this child bridge) after saving**. Such changes deliberately
 re-create the device's Matter accessories with fresh identities (Apple Home mishandles devices that reappear with the same identity

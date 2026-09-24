@@ -63,6 +63,13 @@ export interface ShellyDeviceConfig {
   /** Gas detectors: expose the alarm as a smoke or CO alarm ('off' or absent = not exposed). */
   gasAlarm?: GasAlarmMode | 'off';
   /**
+   * EM devices with a relay: show the first clamp's readings on the relay's
+   * accessory (a working switch with wattage on its tile) instead of as a
+   * meter channel of its own. Right when that clamp measures the circuit the
+   * relay switches; OFF by default.
+   */
+  clampOnRelay?: boolean;
+  /**
    * Multi-channel devices only: expose each channel as its own accessory
    * (assignable to its own room). ON by default - set false to expose the
    * device as one grouped accessory. Toggling re-creates the accessories.
@@ -128,6 +135,9 @@ export const powerMeteringEnabled = (entry: ShellyDeviceConfig | undefined): boo
 
 /** The alarm a gas detector is exposed as, or undefined when the entry has not opted in. */
 export const gasAlarmMode = (entry: ShellyDeviceConfig | undefined): GasAlarmMode | undefined => GAS_ALARM_MODES.find((mode) => mode === entry?.gasAlarm);
+
+/** The first EM clamp rides on the relay only when the entry opts in. */
+export const clampOnRelayEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.clampOnRelay === true;
 
 /** Vibration exposed as a motion sensor only when the entry opts in. */
 export const vibrationAsMotionEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.vibrationAsMotion === true;

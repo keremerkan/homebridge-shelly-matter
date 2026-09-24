@@ -86,6 +86,13 @@
                 "functionBody": "return false;"
               }
             },
+            "clampOnRelay": {
+              "title": "Show the first clamp on the relay",
+              "type": "boolean",
+              "condition": {
+                "functionBody": "return false;"
+              }
+            },
             "gasAlarm": {
               "title": "Gas alarm shown as",
               "type": "string",

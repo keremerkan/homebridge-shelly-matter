@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, PlatformConfig } from 'homebridge';
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
-import { configForDevice, deviceConfigs, deviceHidden, isSplittableKind, METER_TOTAL_KIND, meterConfig } from './deviceConfig.js';
+import { clampOnRelayEnabled, configForDevice, deviceConfigs, deviceHidden, isSplittableKind, METER_TOTAL_KIND, meterConfig } from './deviceConfig.js';
 import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
 import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
@@ -626,8 +626,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   }
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
-    const mapped = mappedComponents(device);
     const host = this.configHost(device);
+    const mapped = mappedComponents(device, clampOnRelayEnabled(configForDevice(this.config, device.id, host)));
     this.rememberDevice({
       id: device.id,
       host,

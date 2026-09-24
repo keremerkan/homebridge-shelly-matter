@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, channelConfig, channelHidden, clampOnRelayEnabled, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -61,6 +61,8 @@ export function deviceView({ config, devices } = {}) {
       // page renders a control for each present option).
       ...(kinds?.includes('vibration') ? { vibrationAsMotion: vibrationAsMotionEnabled(entry) } : {}),
       ...(kinds?.includes('gas') ? { gasAlarm: gasAlarmMode(entry) ?? 'off' } : {}),
+      // EM devices: a relay next to clamps.
+      ...(actuatorIndexes.length > 0 && kinds.some(isMeterKind) ? { clampOnRelay: clampOnRelayEnabled(entry) } : {}),
     };
   });
   return { types: [...ACCESSORY_TYPES], meterTypes: [...METER_TYPES], gasAlarmModes: [...GAS_ALARM_MODES], untested: UNTESTED_KINDS, rows };
@@ -106,6 +108,7 @@ export function applyView({ config, devices, selections } = {}) {
     if (vibration === true) entry.vibrationAsMotion = true;
     const gas = gasAlarmMode(sel?.gasAlarm !== undefined ? sel : prior);
     if (gas !== undefined) entry.gasAlarm = gas;
+    if (sel?.clampOnRelay ?? clampOnRelayEnabled(prior)) entry.clampOnRelay = true;
     if (sel?.hidden === true) entry.hidden = true;
     // Split is the default; only the grouped choice is a deviation worth recording.
     if (sel?.split === false) entry.splitChannels = false;

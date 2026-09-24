@@ -66,9 +66,12 @@ table is the primary editor; it rewrites entries wholesale on change.
 temperature/humidity/flood/contact/illuminance/vibration/smoke/gas/meter; the kind predicates, `channelHidden`,
 `powerMeteringEnabled` and `resolveAccessoryType` live there too so the
 settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
-no type choice; only a Gen 1 relay/roller/dimmer meter (`meter:N`) merges onto
-its same-index actuator's endpoint (`context.partMeters`) - EM clamps measure
-whatever they are clamped around, so each is its own meter channel (#14). Tested/untested status per model lives in the README
+no type choice; a Gen 1 relay/roller/dimmer meter (`meter:N`) merges onto its
+same-index actuator's endpoint (`context.partMeters`). EM clamps measure
+whatever they are clamped around, so each is its own meter channel (#14)
+unless the device's `clampOnRelay` merges the first one onto the relay;
+`reshapeClampOnRelay` re-shapes cache rebuilds to the current setting so a
+toggle (or a pre-#14 merged cache) applies pre-online. Tested/untested status per model lives in the README
 device table. devices.json records per-channel `kinds` for the UI.
 
 ## Hard-won constraints (do not silently change)

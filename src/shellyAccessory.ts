@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { type AccessoryType, channelConfig, channelHidden, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
+import { type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -252,8 +252,8 @@ interface MappedComponent {
  */
 const SENSOR_KIND_BY_NAME: Record<string, SensorKind> = { Temperature: 'temperature', Humidity: 'humidity', Flood: 'flood', Sensor: 'contact', Lux: 'illuminance', Vibration: 'vibration', Smoke: 'smoke', Gas: 'gas' };
 
-/** The components this plugin can expose, in device order. */
-export function mappedComponents(device: ShellyDevice): MappedComponent[] {
+/** The components this plugin can expose, in device order (`clampOnRelay`: the device entry's option). */
+export function mappedComponents(device: ShellyDevice, clampOnRelay = false): MappedComponent[] {
   const mapped: MappedComponent[] = [];
   for (const [, component] of device) {
     // Gen 1 dual-mode devices (2.5, Shelly 2) expose BOTH relay and roller
@@ -271,17 +271,17 @@ export function mappedComponents(device: ShellyDevice): MappedComponent[] {
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
   }
   // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
-  // the protocol layer). Only a Gen 1 relay/roller/dimmer meter (meter:N)
-  // measures its same-index actuator, and merges its measurements onto that
-  // endpoint. Every other meter is its own channel: an EM clamp measures
-  // whatever it is clamped around, and the relay on EM-style devices is an
-  // independent contactor output.
+  // the protocol layer). A Gen 1 relay/roller/dimmer meter (meter:N)
+  // measures its same-index actuator and merges its measurements onto that
+  // endpoint. An EM clamp measures whatever it is clamped around (the relay
+  // on EM devices is an independent contactor output), so it is a channel of
+  // its own unless the entry's `clampOnRelay` puts the first one on the relay.
   for (const [, component] of device) {
     if (component.name !== 'PowerMeter') continue;
     // Gen 1 relays without metering still report a dummy meter (Shelly 1:
     // {power: 0, is_valid: true}); real Gen 1 meters carry a 'total' counter.
     if (component.id.startsWith('meter:') && !component.hasProperty('total')) continue;
-    const actuator = component.id.startsWith('meter:') ? mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter) : undefined;
+    const actuator = component.id.startsWith('meter:') || clampOnRelay ? mapped.find((m) => isSplittableKind(m.kind) && m.component.index === component.index && !m.meter) : undefined;
     if (actuator) actuator.meter = component;
     else mapped.push({ component, kind: 'meter', ...(isTriphaseTotal(component.id) ? { total: true } : {}) });
   }
@@ -622,7 +622,8 @@ function composeAccessories(
 /** Builds the MatterAccessories for a live Shelly device (empty if it has no visible supported components). */
 export function buildShellyAccessories(platform: ShellyMatterPlatform, device: ShellyDevice, generation = 0): MatterAccessory[] {
   const metering = meteringEnabled(platform, device);
-  const all: Composable[] = mappedComponents(device).map(({ component, kind, meter }) => ({
+  const clampOnRelay = clampOnRelayEnabled(configForDevice(platform.config, device.id, platform.configHost(device)));
+  const all: Composable[] = mappedComponents(device, clampOnRelay).map(({ component, kind, meter }) => ({
     componentId: component.id,
     index: component.index,
     kind,
@@ -660,6 +661,12 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   emeter: 'meter',
 };
 
+const isElectrical = (cluster: string): boolean => cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement';
+
+/** The electrical (power/energy) clusters of a snapshot, or everything else. */
+const electricalPart = (clusters: Record<string, ClusterState>, electrical: boolean): Record<string, ClusterState> =>
+  Object.fromEntries(Object.entries(clusters).filter(([cluster]) => isElectrical(cluster) === electrical));
+
 /**
  * The carried cluster snapshot for a shell: strips metering clusters when
  * metering is off, and seeds periodic-energy attributes alongside carried
@@ -670,7 +677,7 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
 function clustersForMetering(clusters: Record<string, ClusterState>, metering: boolean): Record<string, ClusterState> {
   const result: Record<string, ClusterState> = {};
   for (const [cluster, attributes] of Object.entries(clusters)) {
-    if (!metering && (cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement')) continue;
+    if (!metering && isElectrical(cluster)) continue;
     result[cluster] = attributes;
   }
   const eem = result.electricalEnergyMeasurement;
@@ -681,6 +688,32 @@ function clustersForMetering(clusters: Record<string, ClusterState>, metering: b
     result.electricalEnergyMeasurement = seeded;
   }
   return result;
+}
+
+/**
+ * Re-shapes cached components to the current `clampOnRelay` setting (the
+ * cache holds the shape it was registered with), so toggling it applies
+ * pre-online like any composition change: the first EM clamp moves onto its
+ * relay's endpoint, or back out into a meter channel, with its carried
+ * power/energy snapshot. Gen 1 relay meters (meter:N) always stay merged.
+ */
+function reshapeClampOnRelay(components: Map<string, Composable>, carriedById: Map<string, Record<string, ClusterState>>, clampOnRelay: boolean): void {
+  const isClamp = (id: string | undefined): id is string => id !== undefined && !id.startsWith('meter:');
+  for (const relay of [...components.values()].filter(({ kind }) => isSplittableKind(kind))) {
+    const own = relay.clustersFor;
+    if (!clampOnRelay && isClamp(relay.meterId)) {
+      const clampId = relay.meterId;
+      const electrical = electricalPart(carriedById.get(relay.componentId) ?? {}, true);
+      components.set(relay.componentId, { ...relay, meterId: undefined, clustersFor: (token) => electricalPart(own(token), false) });
+      components.set(clampId, { componentId: clampId, index: relay.index, kind: 'meter', clustersFor: (token) => ({ ...clustersAtRest(token), ...electrical }) });
+    }
+    const clamp = [...components.values()].find(({ componentId, index, kind }) => kind === 'meter' && index === relay.index && isClamp(componentId));
+    if (clampOnRelay && relay.meterId === undefined && clamp) {
+      const electrical = electricalPart(carriedById.get(clamp.componentId) ?? {}, true);
+      components.set(relay.componentId, { ...relay, meterId: clamp.componentId, clustersFor: (token) => ({ ...own(token), ...electrical }) });
+      components.delete(clamp.componentId);
+    }
+  }
 }
 
 /** The highest rotation generation recorded in a device's cached accessories. */
@@ -702,9 +735,11 @@ export const cachedGenerationOf = (cachedList: MatterAccessory[]): number =>
  * Returns undefined for foreign/corrupt cache entries.
  */
 export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[], host?: string, minGeneration = 0): { shells: MatterAccessory[]; generation: number } | undefined {
-  const metering = powerMeteringEnabled(configForDevice(platform.config, deviceId, host));
+  const entry = configForDevice(platform.config, deviceId, host);
+  const metering = powerMeteringEnabled(entry);
 
   const components = new Map<string, Composable>();
+  const carriedById = new Map<string, Record<string, ClusterState>>();
   let template: MatterAccessory | undefined;
   let cachedDeviceName: string | undefined;
   let cachedActuatorIndexes: number[] | undefined;
@@ -726,7 +761,7 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
       if (!match || !kind) continue;
       const index = match[2] !== undefined ? Number(match[2]) : -1;
-      if (!metering && ('electricalPowerMeasurement' in part.clusters || 'electricalEnergyMeasurement' in part.clusters)) stripped = true;
+      if (!metering && Object.keys(part.clusters).some(isElectrical)) stripped = true;
       // The carried snapshot keeps the registered shape (metering-filtered);
       // it is only reused for a token whose clusters at rest match the
       // registered token's (a retyped switch keeps them, a gas alarm switched
@@ -735,9 +770,11 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       const registeredToken = context.partTypes[part.id] as PartToken | undefined;
       const sameShape = (token: PartToken): boolean => registeredToken !== undefined && deepEqual(PART_SHAPES[token]?.clusters, PART_SHAPES[registeredToken]?.clusters);
       components.set(componentId, { componentId, index, kind, meterId: context.partMeters?.[part.id], clustersFor: (token) => (sameShape(token) ? carried : clustersAtRest(token)) });
+      carriedById.set(componentId, carried);
     }
   }
   if (!template || components.size === 0) return undefined;
+  reshapeClampOnRelay(components, carriedById, clampOnRelayEnabled(entry));
 
   const shell = template;
   const powerSource = accessoryPowerSource(shell);

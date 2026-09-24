@@ -57,6 +57,8 @@
         if (splitBox) sel.split = splitBox.checked;
         const vibrationBox = field('input[data-vibration', device.id);
         if (vibrationBox) sel.vibrationAsMotion = vibrationBox.checked;
+        const clampBox = field('input[data-clamp', device.id);
+        if (clampBox) sel.clampOnRelay = clampBox.checked;
         const gasSelect = field('select[data-gas', device.id);
         if (gasSelect) sel.gasAlarm = gasSelect.value;
         // Every channel row has a hide checkbox; only switch channels have a
@@ -121,6 +123,12 @@
       return `${labels}${badge}${options.length ? '<br>' + options.join(' &nbsp; ') : ''}`;
     }
 
+    /** EM devices: the option that shows the first clamp's readings on the relay (a working switch with wattage on its tile). */
+    function clampCellHtml(row) {
+      if (row.clampOnRelay === undefined) return '';
+      return `<br><label style="margin: 0; font-weight: normal;" title="Show the first clamp's power and energy on the relay's accessory instead of as a meter channel of its own: the relay tile then shows the wattage (as an outlet) and still switches. Use it when that clamp measures the circuit the relay switches. Changing this re-creates the device's accessories."><input type="checkbox" data-clamp="${escapeAttr(row.id)}" ${row.clampOnRelay ? 'checked' : ''}> first clamp on the relay</label>`;
+    }
+
     /** Which transport the device reports over, with a hint when its RPC-over-UDP setting and the plugin option disagree. */
     function transportHtml(device) {
       if (!device.transport) return '';
@@ -165,7 +173,7 @@
             </td>
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>
-            <td>${multi ? '<span class="text-muted">per channel</span>' : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
+            <td>${multi ? `<span class="text-muted">per channel</span>${clampCellHtml(row)}` : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
             <td style="text-align: center;" title="Expose each channel as its own accessory so channels can be placed in different rooms. Changing this re-creates the accessories - reassign rooms after.">${multi && row.splittable ? `<input type="checkbox" data-split="${escapeAttr(device.id)}" ${row.split ? 'checked' : ''}>` : ''}</td>
             <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
           </tr>
@@ -184,7 +192,7 @@
           <div>&#9432; <strong>Hide</strong>: the device or channel is not exposed at all.</div>
           <div>&#9432; Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.</div>
         </div>`;
-      for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], select[data-gas]')) {
+      for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], input[data-clamp], select[data-gas]')) {
         el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
       }
     }
