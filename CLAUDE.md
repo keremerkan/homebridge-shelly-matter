@@ -262,10 +262,13 @@ device table. devices.json records per-channel `kinds` for the UI.
   Two-phase runs simulate restarts: serialize run-1 registrations the way the
   homebridge cache does (strip handlers, deviceType → {name}) and feed them to
   `configureMatterAccessory` in run 2.
-- Full-stack rig: throwaway Homebridge install (`npm i homebridge`) + storage
-  dir + `-U ./storage -P <plugin>`; commission with a matter.js controller
-  script (`ServerNode.create` + `peers.commission({passcode, discriminator})`)
-  — the whole controller stack ships inside Homebridge's node_modules. On this
+- Full-stack rig (`fixtures/rig/`): throwaway Homebridge install + a storage
+  dir per scenario; `run.sh <storage-dir> <log>` starts it, and
+  `controller.mjs commission <passcode> <discriminator>` / `inspect` pairs a
+  matter.js controller and prints the bridge's accessories, parts and wattage
+  (the controller stack ships inside Homebridge's node_modules). Restart the
+  whole rig to apply config edits: a killed child bridge is respawned with
+  the parent's in-memory config (only the UI's child restart re-reads it). On this
   Mac, mDNS same-host discovery fails when the bridge binds an interface
   (`bind: [en0]`); leave unbound for rig tests. en0 IS Wi-Fi here.
 - Real-device data points: 5× Plus 1 (no metering), 5× Plus Plug S (metering),
