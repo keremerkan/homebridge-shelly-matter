@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`clampOnRelay`** (EM devices with a relay; settings table: "first clamp on the relay"): shows the first clamp's power and energy on the relay's accessory, so the relay tile shows the wattage and still switches. Use it when that clamp measures the circuit the relay switches. Off by default; changing it re-creates the device's accessories.
 - **Meter channels as virtual outlets** ([#13](https://github.com/keremerkan/homebridge-shelly-matter/issues/13)): a meter channel (3EM phase, EM clamp, PM Mini) can be shown as an outlet, so Apple Home displays its live wattage on the tile (it shows tile wattage only for outlet types). Choose "Outlet" in the meter row's type dropdown, or set `accessoryType: "outlet"` on the channel (or on the device when it has no relay channels). The switch on such a tile does nothing. Changing it re-creates the accessory once.
 
+### Fixed
+
+- Settings form: the device's "Accessory type" help text started with a stray ". " and lacked its first sentence.
+
 ## [0.9.1] - 2026-09-12
 
 ### Added

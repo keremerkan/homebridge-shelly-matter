@@ -67,7 +67,7 @@
                   ]
                 }
               ],
-              "description": ". On a meter channel, outlet shows it as a virtual outlet with the wattage on the tile (its switch does nothing)."
+              "description": "Light, outlet or switch for relay channels (covers and dimmers have a fixed type). On a meter channel, outlet shows it as a virtual outlet with the wattage on the tile (its switch does nothing)."
             },
             "hidden": {
               "title": "Hide (do not expose to Matter)",
