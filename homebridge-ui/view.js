@@ -1,4 +1,4 @@
-import { ACCESSORY_TYPES, channelConfig, channelHidden, clampOnRelayEnabled, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_TOTAL_KIND, METER_TYPES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
+import { ACCESSORY_TYPES, ADDON_INDEX_MIN, channelConfig, channelHidden, clampOnRelayEnabled, configForDevice, defaultAccessoryType, deviceConfigs, deviceHidden, GAS_ALARM_MODES, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, METER_TOTAL_KIND, METER_TYPES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, splitChannelsEnabled, vibrationAsMotionEnabled } from '../dist/deviceConfig.js';
 
 /**
  * The settings table's view/apply logic, computed with the plugin's own config
@@ -34,6 +34,17 @@ export function deviceView({ config, devices } = {}) {
     const actuatorIndexes = (kinds ?? []).flatMap((kind, channel) => (isSplittableKind(kind) ? [indexOf(channel)] : []));
     // Meters are addressed by `meter`, everything else by `channel`.
     const configOf = (channel) => (isMeterKind(kindOf(channel)) ? meterConfig(entry, indexOf(channel), actuatorIndexes) : channelConfig(entry, indexOf(channel)));
+    // Rows are labelled by what they are, never by table position, so a label
+    // keeps its meaning when the row set changes (the first clamp moving onto
+    // the relay, a hidden row). Same naming as the accessories' parts.
+    const triphase = kinds?.includes(METER_TOTAL_KIND) ?? false;
+    const labelOf = (channel) => {
+      const kind = kindOf(channel);
+      const index = indexOf(channel);
+      if (isMeterKind(kind)) return triphase && index < METER_PHASES.length ? METER_PHASES[index].replace(/^./, (c) => c.toLowerCase()) : `meter ${index + 1}`;
+      if (isSensorKind(kind)) return kinds.filter((k) => k === kind).length > 1 && index >= ADDON_INDEX_MIN ? `${kind} ${index - ADDON_INDEX_MIN + 1}` : kind;
+      return `ch ${index + 1}`;
+    };
     const typeOf = (channel) => {
       const kind = kindOf(channel ?? 0);
       const index = channel === undefined ? undefined : indexOf(channel);
@@ -48,6 +59,7 @@ export function deviceView({ config, devices } = {}) {
       defaultType: defaultAccessoryType(device.id),
       type: typeOf(undefined),
       channelKinds: Array.from({ length: channelCount }, (_, i) => kindOf(i)),
+      channelLabels: Array.from({ length: channelCount }, (_, i) => labelOf(i)),
       channelTypes: Array.from({ length: channelCount }, (_, i) => typeOf(i)),
       channelNames: Array.from({ length: channelCount }, (_, i) => configOf(i)?.name ?? ''),
       channelsHidden: Array.from({ length: channelCount }, (_, i) => channelHidden(configOf(i), kindOf(i) === METER_TOTAL_KIND)),

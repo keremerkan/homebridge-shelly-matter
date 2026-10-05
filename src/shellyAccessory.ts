@@ -3,7 +3,7 @@ import type { MatterAccessory } from 'homebridge';
 // Not re-exported from 'homebridge', so derive the part type from MatterAccessory.
 type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
-import { type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
+import { ADDON_INDEX_MIN, type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -23,8 +23,6 @@ type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasT
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
 const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
 
-/** Shelly Plus Add-on components (probes, inputs) are numbered from 100. */
-const ADDON_INDEX_MIN = 100;
 /** The triphase total channel (em:0 only exists on three-phase meters): hidden by default, the phases already sum to it. */
 const isTriphaseTotal = (componentId: string): boolean => componentId === 'em:0';
 
@@ -225,7 +223,6 @@ const meterClustersFor = (meter: ShellyComponent, metering: boolean): Record<str
  * Meter part label: triphase 'em:' components are the total (index 0) and
  * phases A/B/C (1-3); every other meter family is numbered per channel.
  */
-const METER_PHASES = ['Total', 'Phase A', 'Phase B', 'Phase C'];
 const meterPartLabel = (componentId: string, index: number): string =>
   (componentId.startsWith('em:') && index >= 0 && index < METER_PHASES.length ? METER_PHASES[index] : `Meter ${index + 1}`);
 

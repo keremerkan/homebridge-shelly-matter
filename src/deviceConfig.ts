@@ -23,6 +23,12 @@ export const isSensorKind = (kind: string): kind is SensorKind => (SENSOR_KINDS 
 /** Kinds whose channels may split into separate accessories (sensors and meters never do). */
 export const isSplittableKind = (kind: string): boolean => kind === 'switch' || kind === 'cover' || kind === 'dimmer';
 
+/** Shelly Plus Add-on components (probes, inputs) are numbered from 100. */
+export const ADDON_INDEX_MIN = 100;
+
+/** Three-phase meter channels by index: the total (em:0), then the phases. */
+export const METER_PHASES = ['Total', 'Phase A', 'Phase B', 'Phase C'];
+
 /** devices.json kind marker of the triphase total channel (a meter that is hidden by default). */
 export const METER_TOTAL_KIND = 'meter-total';
 
