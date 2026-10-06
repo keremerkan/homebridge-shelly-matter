@@ -301,8 +301,9 @@ export function mappedComponents(device: ShellyDevice, clampOnRelay = false): Ma
       if ((kind === 'temperature' || kind === 'humidity') && component.index >= ADDON_INDEX_MIN) mapped.push({ component, kind });
     }
   }
-  // Buttons map only on input PRODUCTS (i3, i4, Button1): a relay's inputs drive its relay.
-  if (!mapped.some(({ kind }) => isSplittableKind(kind))) {
+  // Buttons map only on input PRODUCTS (i3, i4, Button1): any output's inputs
+  // drive that output - including outputs not mapped yet (RGB/RGBW lights).
+  if (![...device].some(([, component]) => isSwitchComponent(component) || isCoverComponent(component) || isLightComponent(component))) {
     for (const [, component] of device) if (isButtonInput(component)) mapped.push({ component, kind: 'button' });
   }
   return mapped;
