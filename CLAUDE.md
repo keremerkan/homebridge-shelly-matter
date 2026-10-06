@@ -183,6 +183,12 @@ device table. devices.json records per-channel `kinds` for the UI.
   real host, `cached = true`), and on a CoIoT report from an unknown host
   runs a one-shot `addHost` while the device is awake. Never restore
   non-sleeping devices from a file. `fixtures/sleeping-device.mjs` covers it.
+- **Button presses** (`attachButton`): Gen 1 reports a press as an
+  `event_cnt` change with the type in `event`, and the vendored `setValue`
+  emits `update` BEFORE storing the new value - so the handler fires on the
+  counter change and reads `event` after `setImmediate`. An unchanged counter
+  (status refresh) never fires. Gestures per button are queued: Homebridge's
+  `emitGesture` plays a long press out over 2.5 s.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
@@ -250,7 +256,8 @@ device table. devices.json records per-channel `kinds` for the UI.
   log, fixture loop) the scripts import; `fixtures/sleeping-device.mjs` covers
   the sleeping-device paths; `fixtures/meter-config.mjs` covers meter
   addressing (`meter` vs legacy `channel`, settings UI round trip, upgrade
-  from a merged-clamp cache);
+  from a merged-clamp cache); `fixtures/buttons.mjs` covers button mapping
+  and press forwarding (Gen 1 counters, Gen 2+ events);
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,

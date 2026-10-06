@@ -133,7 +133,7 @@ if you own one and want it prioritized — we can usually provide a beta build t
 
 - RGB / RGBW / CCT lights (RGBW2, Plus RGBW PM, bulbs)
 - Sensors: Motion, BLU sensors via a Shelly BLE gateway — including battery level
-- Buttons and inputs (i3, i4, wall inputs) as stateless switches
+- Inputs in toggle mode, and the wall inputs of relays
 - TRV / thermostats
 
 Not mappable to Matter as what they are: gas detectors (no Matter device type; exposed as a smoke or CO alarm with `gasAlarm`), tilt.
@@ -167,7 +167,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Plus Add-on probes (on any Gen 2+ relay) | `temperature:100`, `humidity:100` components | temperature / humidity parts; a separate "Sensors" accessory on split devices | ✅ [#12](https://github.com/keremerkan/homebridge-shelly-matter/issues/12) |
 | Shelly Gas | `shellygas` | alarm as smoke or CO alarm (opt-in `gasAlarm`; no Matter gas type) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) (CO alarm mode) |
 | Motion sensors | `shellymotionsensor`, `shellymotion2` | motion + battery | ⏳ |
-| Buttons and inputs (Button1, i3, Plus i4) | `shellybutton1`, `shellyix3`, `shellyplusi4` … | stateless switches | ⏳ |
+| Buttons and inputs (Button1, i3, Plus i4, i4 Gen3/Gen4) | `shellybutton1`, `shellyix3`, `shellyplusi4`, `shellyi4g3` … | inputs in button (momentary) mode as Matter buttons: single, double and long press for Home automations (Apple Home has no triple-press trigger); toggle-mode inputs are not mapped yet | 🟡 [#15](https://github.com/keremerkan/homebridge-shelly-matter/issues/15) |
 | RGB / RGBW / CCT lights (RGBW2, Color Bulb, Plus RGBW PM, Pro RGBWW PM) | `shellyrgbw2`, `shellycolorbulb`, `shellyplusrgbwpm` … | color lights | ⏳ |
 | Shelly EM Gen4 | `shellyemg4` | relay as outlet, plus each clamp as its own meter channel: electrical sensor, or virtual outlet with tile wattage (`{ "meter": 0, "accessoryType": "outlet" }`); `clampOnRelay` shows the first clamp on the relay tile instead | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
 | Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints, or virtual outlets with tile wattage (`accessoryType: "outlet"` per phase) (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "meter": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |

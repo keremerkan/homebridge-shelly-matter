@@ -8,7 +8,7 @@ import type { ShellyMatterPlatform } from './platform.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
 import type { ShellyData, ShellyDataType } from './shelly/shellyTypes.js';
-import { deepEqual, isValidNumber, isValidObject } from './shelly/utils/index.js';
+import { deepEqual, getErrorMessage, isValidNumber, isValidObject } from './shelly/utils/index.js';
 
 /** A gas detector's part token names the alarm it is shown as ('smokealarm' | 'coalarm'), distinct from a real smoke sensor's 'smoke'. */
 type GasToken = `${GasAlarmMode}alarm`;
@@ -301,7 +301,25 @@ export function mappedComponents(device: ShellyDevice, clampOnRelay = false): Ma
       if ((kind === 'temperature' || kind === 'humidity') && component.index >= ADDON_INDEX_MIN) mapped.push({ component, kind });
     }
   }
+  // Buttons map only on input PRODUCTS (i3, i4, Button1): a relay's inputs drive its relay.
+  if (!mapped.some(({ kind }) => isSplittableKind(kind))) {
+    for (const [, component] of device) if (isButtonInput(component)) mapped.push({ component, kind: 'button' });
+  }
   return mapped;
+}
+
+/**
+ * An input that works as a push button: Gen 1 momentary inputs (the Button1
+ * has no mode at all) and enabled Gen 2+ inputs of type 'button'. Toggle-mode
+ * inputs report a state rather than presses and are not mapped, nor are
+ * add-on inputs (100+).
+ */
+function isButtonInput(component: ShellyComponent): boolean {
+  if (component.name !== 'Input' || component.index >= ADDON_INDEX_MIN) return false;
+  if (component.hasProperty('type')) return component.getValue('type') === 'button' && !(component.hasProperty('enable') && component.getValue('enable') === false);
+  if (!component.hasProperty('event_cnt')) return false;
+  const mode = component.hasProperty('btn_type') ? component.getValue('btn_type') : undefined;
+  return mode === undefined || (typeof mode === 'string' && mode.startsWith('momentary'));
 }
 
 function meteringEnabled(platform: ShellyMatterPlatform, device: ShellyDevice): boolean {
@@ -343,6 +361,8 @@ const PART_SHAPES: Record<PartToken, PartShape> = {
   smokealarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
   coalarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('coState') } },
   meter: { kind: 'meter', deviceType: 'ElectricalSensor', clusters: { electricalPowerMeasurement: { activePower: 0 } } },
+  // A push button: stateless, presses arrive as Matter switch events (see attachButton).
+  button: { kind: 'button', deviceType: 'GenericSwitch', clusters: { switch: { numberOfPositions: 2, currentPosition: 0, multiPressMax: 2 } } },
   // A meter channel shown as a virtual plug (#13): Apple Home shows live
   // wattage only on outlet tiles. Its switch has nothing to switch and is
   // kept "on" (see handlersFor).
@@ -383,8 +403,8 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     const keepOn = (): void => void platform.matter.updateAccessoryState(uuid, 'onOff', { onOff: true }, partId);
     return { onOff: { on: keepOn, off: keepOn } };
   }
-  // Sensors and meters are read-only: no commands, no handlers.
-  if (isSensorKind(kind) || kind === 'meter') return undefined;
+  // Sensors, meters and buttons accept no commands: no handlers.
+  if (isSensorKind(kind) || kind === 'meter' || kind === 'button') return undefined;
   const resolve = (action: string): ShellyComponent | undefined => {
     const component = platform.shellyComponent(deviceId, componentId);
     if (!component) platform.log.warn(`Shelly ${deviceId} is not connected - cannot ${action} ${componentId}.`);
@@ -592,6 +612,7 @@ function composeAccessories(
   const countOfKind = (kind: ComponentKind): number => typed.filter((component) => component.kind === kind).length;
   const channelName = ({ componentId, index, kind }: Composable): string => {
     if (kind === 'meter') return `${displayName} ${meterPartLabel(componentId, index)}`;
+    if (kind === 'button') return countOfKind('button') > 1 ? `${displayName} Button ${index + 1}` : displayName;
     // Two add-on probes of the same kind get numbered (probe 1, probe 2).
     if (isSensorKind(kind)) return `${displayName} ${SENSOR_PART_LABEL[kind]}${countOfKind(kind) > 1 && index >= ADDON_INDEX_MIN ? ` ${index - ADDON_INDEX_MIN + 1}` : ''}`;
     return actuators.length <= 1 ? displayName : `${displayName} ${index + 1}`;
@@ -632,7 +653,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
   // cluster - the core composes the Battery feature from these attributes.
   const battery = device.getComponent('battery');
-  const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind)) ? { powerSource: powerSourceClusterFor(battery) } : undefined;
+  const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind) || kind === 'button') ? { powerSource: powerSourceClusterFor(battery) } : undefined;
   const template: AccessoryTemplate = { serialNumber: device.mac, manufacturer: 'Shelly', model: device.model, firmwareRevision: device.firmware };
   return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, parentClusters);
 }
@@ -656,6 +677,7 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   pm1: 'meter',
   meter: 'meter',
   emeter: 'meter',
+  input: 'button',
 };
 
 const isElectrical = (cluster: string): boolean => cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement';
@@ -878,6 +900,7 @@ function accessoryParts(device: ShellyDevice, accessory: MatterAccessory): Resol
 export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyDevice, accessory: MatterAccessory): void {
   const metering = meteringEnabled(platform, device);
   for (const { partId, component, kind, token, meter, declared } of accessoryParts(device, accessory)) {
+    if (kind === 'button') continue; // stateless: presses are events, nothing to push
     const push = (clusters: Record<string, ClusterState>) => {
       for (const [cluster, attributes] of Object.entries(clusters)) {
         if (declared.has(cluster)) void platform.matter.updateAccessoryState(accessory.UUID, cluster, attributes, partId);
@@ -891,6 +914,38 @@ export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyD
     const fragment = powerSourceFragment(device.getComponent('battery')?.getValue('level'));
     if (fragment) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment);
   }
+}
+
+type Gesture = 'singlePress' | 'doublePress' | 'longPress';
+const GEN1_GESTURES: Record<string, Gesture> = { S: 'singlePress', SS: 'doublePress', L: 'longPress' };
+const GEN2_GESTURES: Record<string, Gesture> = { single_push: 'singlePress', double_push: 'doublePress', long_push: 'longPress' };
+
+/**
+ * Forwards an input's presses as Matter switch gestures. Gen 2+ devices send
+ * press events; Gen 1 devices bump `event_cnt` and put the press type in
+ * `event`, so a press is a change of a counter already seen (a status refresh
+ * never replays an old press). Triple presses and short/long combinations
+ * have no Matter gesture (multi-press is capped at 2) and are dropped.
+ * Gestures on one button play out in order: the helper takes 2.5 s for a
+ * long press.
+ */
+function attachButton(platform: ShellyMatterPlatform, uuid: string, partId: string, component: ShellyComponent): void {
+  let queue = Promise.resolve();
+  const emit = (gesture: Gesture | undefined): void => {
+    if (!gesture) return;
+    queue = queue
+      .then(() => platform.matter.switch.emitGesture(uuid, gesture, { partId }))
+      .catch((error) => platform.log.debug(`Button ${component.id} of ${component.device.id}: ${getErrorMessage(error)}`));
+  };
+  component.on('event', (_componentId: string, event: string) => emit(GEN2_GESTURES[event]));
+  let count = component.hasProperty('event_cnt') ? component.getValue('event_cnt') : undefined;
+  component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
+    if (property !== 'event_cnt') return;
+    const previous = count;
+    count = value;
+    // `event` arrives in the same report; read it once the report is applied.
+    if (typeof previous === 'number' && value !== previous) setImmediate(() => emit(GEN1_GESTURES[String(component.getValue('event'))]));
+  });
 }
 
 /** Subscribes to component updates and forwards them to the Matter accessory state. */
@@ -918,6 +973,10 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
   };
 
   for (const { partId, component, token, meter, declared } of accessoryParts(device, accessory)) {
+    if (token === 'button') {
+      attachButton(platform, accessory.UUID, partId, component);
+      continue;
+    }
     const forward = (source: ShellyComponent, propertyMap: Map<string, PropertyRow>) => {
       source.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
         const entry = propertyMap.get(property);

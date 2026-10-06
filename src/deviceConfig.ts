@@ -12,7 +12,7 @@ export type AccessoryType = (typeof ACCESSORY_TYPES)[number];
 export const SENSOR_KINDS = ['temperature', 'humidity', 'flood', 'contact', 'illuminance', 'vibration', 'smoke', 'gas'] as const;
 /** Read-only sensor kinds: no type choice, no handlers, never split (one physical unit). */
 export type SensorKind = (typeof SENSOR_KINDS)[number];
-export const COMPONENT_KINDS = ['switch', 'cover', 'dimmer', ...SENSOR_KINDS, 'meter'] as const;
+export const COMPONENT_KINDS = ['switch', 'cover', 'dimmer', ...SENSOR_KINDS, 'meter', 'button'] as const;
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 
 /** How a gas detector's alarm is exposed - Matter has no gas detector type, so the user picks the alarm it appears as. */

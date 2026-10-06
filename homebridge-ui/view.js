@@ -8,7 +8,7 @@ import { ACCESSORY_TYPES, ADDON_INDEX_MIN, channelConfig, channelHidden, clampOn
  */
 
 /** Component kinds with no hardware confirmation yet (per-model status lives in the README device table). */
-const UNTESTED_KINDS = ['smoke'];
+const UNTESTED_KINDS = ['smoke', 'button'];
 
 /**
  * Everything the settings table needs per device. Takes the UI's current
@@ -43,6 +43,7 @@ export function deviceView({ config, devices } = {}) {
       const index = indexOf(channel);
       if (isMeterKind(kind)) return triphase && index < METER_PHASES.length ? METER_PHASES[index].replace(/^./, (c) => c.toLowerCase()) : `meter ${index + 1}`;
       if (isSensorKind(kind)) return kinds.filter((k) => k === kind).length > 1 && index >= ADDON_INDEX_MIN ? `${kind} ${index - ADDON_INDEX_MIN + 1}` : kind;
+      if (kind === 'button') return `button ${index + 1}`;
       return `ch ${index + 1}`;
     };
     const typeOf = (channel) => {
