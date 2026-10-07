@@ -5,7 +5,9 @@ type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
 import { ADDON_INDEX_MIN, type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
+import { hueSatToRgb, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToXy, xyToRgb } from './color.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
+import { shellyFetch } from './shelly/shellyFetch.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
 import type { ShellyData, ShellyDataType } from './shelly/shellyTypes.js';
 import { deepEqual, getErrorMessage, isValidNumber, isValidObject } from './shelly/utils/index.js';
@@ -63,6 +65,34 @@ const LIFT_CONFIG_STATUS = { operational: true, onlineReserved: false, liftMovem
 
 // Shelly brightness is 1-100; Matter LevelControl (Lighting) levels are 1-254.
 const levelFromBrightness = (brightness: number): number => Math.max(1, Math.round((brightness * 254) / 100));
+
+/**
+ * The RGB(W) mix last written for a color temperature, per light. The device
+ * echoes that mix back as `rgb`; mapping the echo to hue/saturation would
+ * switch Home from the chosen white to a color, so it is skipped.
+ */
+const colorTempWrites = new WeakMap<ShellyComponent, string>();
+/** Last known hue/saturation per light (device reports and commands): single-axis commands keep the other axis. */
+const knownHueSat = new WeakMap<ShellyComponent, { hue: number; saturation: number }>();
+
+/** Gen 2+ RGB/RGBW color in one RGB.Set / RGBW.Set call (the vendored ColorRGB cannot set the RGBW white channel). */
+function setLightColor(component: ShellyComponent, rgb: Rgb, white: number, colorTemp: boolean): void {
+  if (colorTemp) colorTempWrites.set(component, JSON.stringify(rgb));
+  else colorTempWrites.delete(component);
+  const params = { id: component.index, rgb, ...(component.name === 'Rgbw' ? { white } : {}) };
+  void shellyFetch(component.device.shelly, component.device.log, component.device.host, `${component.name.toUpperCase()}.Set`, params);
+}
+
+/** The device's `rgb` as Matter hue/saturation and x/y (colorMode 0 = hue/saturation). */
+function colorFragment(value: ShellyDataType, component?: ShellyComponent): ClusterState | undefined {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every((c) => isValidNumber(c, 0, 255))) return undefined;
+  if (component && colorTempWrites.get(component) === JSON.stringify(value)) return undefined;
+  const rgb = value as Rgb;
+  const { hue, saturation } = rgbToHueSat(rgb);
+  if (component) knownHueSat.set(component, { hue, saturation });
+  const { x, y } = rgbToXy(rgb);
+  return { colorMode: 0, currentHue: hue, currentSaturation: saturation, currentX: x, currentY: y };
+}
 const brightnessFromLevel = (level: number): number => Math.max(1, Math.min(100, Math.round((level / 254) * 100)));
 
 // matter.js epoch-s fields take UNIX seconds and validate them against the
@@ -129,8 +159,9 @@ const gasAlarmFragment = (mode: GasAlarmMode) => (v: ShellyDataType): ClusterSta
   (typeof v === 'string' ? { [mode === 'co' ? 'coState' : 'smokeState']: gasLevel(v), expressedState: v === 'test' ? 4 : gasLevel(v) ? (mode === 'co' ? 2 : 1) : 0, testInProgress: v === 'test' } : undefined);
 
 const PROPERTY_MAP: PropertyRow[] = [
-  { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer'] },
-  { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer'] },
+  { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer', 'color'] },
+  { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer', 'color'] },
+  { property: 'rgb', cluster: 'colorControl', convert: colorFragment, kinds: ['color'] },
   { property: 'current_pos', cluster: 'windowCovering', convert: (v) => (isValidNumber(v, 0, 100) ? { currentPositionLiftPercent100ths: liftFromPosition(v) } : undefined), kinds: ['cover'] },
   { property: 'state', cluster: 'windowCovering', convert: (v) => (typeof v === 'string' ? { operationalStatus: OPERATIONAL_STATUS[v] ?? OPERATIONAL_STOPPED } : undefined), kinds: ['cover'] },
   { property: 'apower', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activePower: milli(v) } : undefined), metered: true },
@@ -263,9 +294,11 @@ export function mappedComponents(device: ShellyDevice, clampOnRelay = false): Ma
     } else if (isCoverComponent(component)) {
       if (device.profile !== 'switch') mapped.push({ component, kind: 'cover' });
     }
-    // Light components without brightness (and Rgb/Rgbw/Cct color channels)
-    // are not mapped yet - see the README support matrix.
+    // Light components without brightness, Cct channels and Gen 1 color
+    // modes are not mapped yet - see the README support matrix.
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
+    // Gen 2+ color lights (Plus RGBW PM in RGB/RGBW mode, Pro RGBWW PM's RGB channel).
+    else if ((component.name === 'Rgb' || component.name === 'Rgbw') && component.hasProperty('rgb')) mapped.push({ component, kind: 'color' });
   }
   // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
   // the protocol layer). A Gen 1 relay/roller/dimmer meter (meter:N)
@@ -352,6 +385,17 @@ const PART_SHAPES: Record<PartToken, PartShape> = {
     clusters: { windowCovering: { configStatus: LIFT_CONFIG_STATUS, currentPositionLiftPercent100ths: 0, targetPositionLiftPercent100ths: 0, operationalStatus: OPERATIONAL_STOPPED } },
   },
   dimmer: { kind: 'dimmer', deviceType: 'DimmableLight', clusters: { onOff: ON_OFF_AT_REST, levelControl: { currentLevel: 254 } } },
+  color: {
+    kind: 'color',
+    deviceType: 'ExtendedColorLight',
+    clusters: {
+      onOff: ON_OFF_AT_REST,
+      levelControl: { currentLevel: 254 },
+      // colorMode 0 = hue/saturation; the color temperature range is what the RGB(W) mix can approximate
+      // (coupleColorTempToLevelMinMireds is mandatory with the ColorTemperature feature).
+      colorControl: { colorMode: 0, currentHue: 0, currentSaturation: 0, currentX: 20493, currentY: 21561, colorTemperatureMireds: 250, colorTempPhysicalMinMireds: 153, colorTempPhysicalMaxMireds: 500, coupleColorTempToLevelMinMireds: 153 },
+    },
+  },
   temperature: { kind: 'temperature', deviceType: 'TemperatureSensor', clusters: { temperatureMeasurement: { measuredValue: null } } },
   humidity: { kind: 'humidity', deviceType: 'HumiditySensor', clusters: { relativeHumidityMeasurement: { measuredValue: null } } },
   flood: { kind: 'flood', deviceType: 'LeakSensor', clusters: { booleanState: { stateValue: false } } },
@@ -444,13 +488,62 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
       off: () => setOnOff(false),
     },
   };
-  if (kind === 'dimmer') {
+  if (kind === 'dimmer' || kind === 'color') {
     // The LevelControl behavior updates Matter state itself after the handler.
     const setLevel = (request: { level: number }): void => {
       const component = resolve('dim');
       if (isLightComponent(component)) component.Level(brightnessFromLevel(request.level));
     };
     handlers.levelControl = { moveToLevel: setLevel as never, moveToLevelWithOnOff: setLevel as never };
+  }
+  if (kind === 'color') {
+    // matter.js runs a hue/saturation command as hue, then saturation, and
+    // Homebridge hands every step to a handler. The steps only update a
+    // target; one Set goes out once the command has run. Handlers never read
+    // Matter state back - that would wait on the command's own transaction.
+    // The commanded values are then re-asserted: on a color-mode switch
+    // matter.js converts the OLD color into the new mode without awaiting
+    // Homebridge's async stopAllColorMovement, so the conversion lands after
+    // the command and overwrites it (a white picked after a color showed the
+    // color's temperature).
+    const target: { rgb: Rgb; white: number; colorTemp: boolean; state: ClusterState } = { rgb: [255, 255, 255], white: 0, colorTemp: false, state: {} };
+    let scheduled = false;
+    const send = (rgb: Rgb, state: ClusterState, white = 0, colorTemp = false): void => {
+      Object.assign(target, { rgb, white, colorTemp, state });
+      if (scheduled) return;
+      scheduled = true;
+      setImmediate(() => {
+        scheduled = false;
+        const component = resolve('set the color of');
+        if (!isLightComponent(component)) return;
+        setLightColor(component, target.rgb, target.white, target.colorTemp);
+        void platform.matter.updateAccessoryState(uuid, 'colorControl', target.state, partId);
+      });
+    };
+    const hueSat = (change: { hue?: number; saturation?: number }): void => {
+      const component = platform.shellyComponent(deviceId, componentId);
+      const next = { ...((component && knownHueSat.get(component)) ?? { hue: 0, saturation: 254 }), ...change };
+      if (component) knownHueSat.set(component, next);
+      send(hueSatToRgb(next.hue, next.saturation), { currentHue: Math.round(next.hue), currentSaturation: Math.round(next.saturation) });
+    };
+    const colorTemp = (mireds: number): void => {
+      const state = { colorTemperatureMireds: mireds };
+      if (platform.shellyComponent(deviceId, componentId)?.name === 'Rgbw') {
+        const { rgb, white } = miredsToRgbw(mireds);
+        send(rgb, state, white, true);
+      } else send(miredsToRgb(mireds), state, 0, true);
+    };
+    handlers.colorControl = {
+      moveToHueAndSaturationLogic: ((request: { hue: number; saturation: number }) => hueSat({ hue: request.hue, saturation: request.saturation })) as never,
+      moveToHueLogic: ((request: { targetHue: number; isEnhancedHue?: boolean }) => hueSat({ hue: request.isEnhancedHue ? (request.targetHue / 65535) * 254 : request.targetHue })) as never,
+      moveToSaturationLogic: ((request: { targetSaturation: number }) => hueSat({ saturation: request.targetSaturation })) as never,
+      moveToColorLogic: ((request: { targetX: number; targetY: number }) => send(xyToRgb(request.targetX, request.targetY), { currentX: request.targetX, currentY: request.targetY })) as never,
+      moveToColorTemperatureLogic: ((request: { colorTemperatureMireds: number }) => colorTemp(request.colorTemperatureMireds)) as never,
+      // matter.js calls this on every color-mode switch, and Homebridge throws
+      // (crashing the child bridge) without a handler. The Shelly runs its own
+      // transitions, so there is nothing to stop.
+      stopAllColorMovement: (() => undefined) as never,
+    };
   }
   return handlers;
 }
@@ -679,6 +772,8 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   meter: 'meter',
   emeter: 'meter',
   input: 'button',
+  rgb: 'color',
+  rgbw: 'color',
 };
 
 const isElectrical = (cluster: string): boolean => cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement';
@@ -932,20 +1027,27 @@ const GEN2_GESTURES: Record<string, Gesture> = { single_push: 'singlePress', dou
  */
 function attachButton(platform: ShellyMatterPlatform, uuid: string, partId: string, component: ShellyComponent): void {
   let queue = Promise.resolve();
-  const emit = (gesture: Gesture | undefined): void => {
+  // `event` is the Shelly press as reported; with debug logging each press shows how far it got.
+  const emit = (event: string, gesture: Gesture | undefined): void => {
+    platform.log.debug(`Shelly ${component.device.id} ${component.id}: ${event} -> ${gesture ?? 'no Matter gesture, ignored'}`);
     if (!gesture) return;
     queue = queue
       .then(() => platform.matter.switch.emitGesture(uuid, gesture, { partId }))
       .catch((error) => platform.log.debug(`Button ${component.id} of ${component.device.id}: ${getErrorMessage(error)}`));
   };
-  component.on('event', (_componentId: string, event: string) => emit(GEN2_GESTURES[event]));
+  component.on('event', (_componentId: string, event: string) => emit(event, GEN2_GESTURES[event]));
   let count = component.hasProperty('event_cnt') ? component.getValue('event_cnt') : undefined;
   component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
     if (property !== 'event_cnt') return;
     const previous = count;
     count = value;
     // `event` arrives in the same report; read it once the report is applied.
-    if (typeof previous === 'number' && value !== previous) setImmediate(() => emit(GEN1_GESTURES[String(component.getValue('event'))]));
+    if (typeof previous === 'number' && value !== previous) {
+      setImmediate(() => {
+        const event = String(component.getValue('event'));
+        emit(event, GEN1_GESTURES[event]);
+      });
+    }
   });
 }
 

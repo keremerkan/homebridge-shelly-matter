@@ -189,6 +189,24 @@ device table. devices.json records per-channel `kinds` for the UI.
   counter change and reads `event` after `setImmediate`. An unchanged counter
   (status refresh) never fires. Gestures per button are queued: Homebridge's
   `emitGesture` plays a long press out over 2.5 s.
+- **Color lights** (`src/color.ts`, kind `color`): Gen 2+ `Rgb`/`Rgbw`
+  components with an `rgb` array -> ExtendedColorLight. Homebridge picks the
+  ColorControl features FROM THE HANDLERS (HueSaturation / Xy /
+  ColorTemperature), so all three handlers must exist. Colors go out as
+  `RGB.Set` / `RGBW.Set` via `setLightColor` (the vendored `ColorRGB` cannot
+  set RGBW's `white`; method names are the documented upper case). A color
+  temperature is an RGB(W) mix; its echo in `rgb` is skipped
+  (`colorTempWrites`) so Home stays on the chosen white instead of a color.
+  Rig-verified (HB 2.4.0 / matter.js 0.17.9), do not undo:
+  `coupleColorTempToLevelMinMireds` is mandatory with ColorTemperature;
+  a `stopAllColorMovement` handler must exist (matter.js calls it on every
+  color-mode switch and Homebridge throws without one - an UNHANDLED error
+  that crashes the child bridge); matter.js runs hue/saturation as hue, then
+  saturation, so handlers only update a target and ONE Set goes out on
+  `setImmediate`; handlers never read Matter state (deadlocks on the
+  command's transaction); and after each command the commanded values are
+  re-asserted, because `switchColorMode` converts the OLD color into the new
+  mode without awaiting Homebridge's async stop and overwrites the command.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
@@ -257,7 +275,8 @@ device table. devices.json records per-channel `kinds` for the UI.
   the sleeping-device paths; `fixtures/meter-config.mjs` covers meter
   addressing (`meter` vs legacy `channel`, settings UI round trip, upgrade
   from a merged-clamp cache); `fixtures/buttons.mjs` covers button mapping
-  and press forwarding (Gen 1 counters, Gen 2+ events);
+  and press forwarding (Gen 1 counters, Gen 2+ events); `fixtures/color.mjs`
+  covers color conversions, mapping, handlers and the color-temperature echo;
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,
