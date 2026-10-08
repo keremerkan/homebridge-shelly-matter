@@ -33,6 +33,32 @@ import { createBasicShellyAuth, createDigestShellyAuth, getGen1BodyOptions, getG
 import type { Shelly } from './shelly.js';
 import type { ShellyData } from './shellyTypes.js';
 
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+/**
+ * local change: reads a JSON body with a size limit. The request's abort timer
+ * stays armed until the body is read, so a peer cannot stall or flood the read.
+ */
+async function readJson(response: Response): Promise<unknown> {
+  const declared = Number(response.headers.get('content-length'));
+  if (declared > MAX_BODY_BYTES) throw new Error(`response body too large (${declared} bytes)`);
+  const reader = response.body?.getReader();
+  if (!reader) return response.json();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      throw new Error(`response body too large (over ${MAX_BODY_BYTES} bytes)`);
+    }
+    chunks.push(value);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
 /**
  * Fetches device data from the specified host and service.
  * If the host ends with '.json', it fetches the device data from a file.
@@ -100,7 +126,6 @@ export async function shellyFetch(
     let response;
     if (service === 'shelly') response = await fetch(`http://${host}/${service}`, { signal: controller.signal });
     else response = await fetch(url, options);
-    clearTimeout(fetchTimeout);
     log.debug(`${GREY}response ok: ${response.ok}${RESET}`);
     if (!response.ok) {
       // Try with authentication
@@ -135,7 +160,8 @@ export async function shellyFetch(
         response = await fetch(url, options);
         log.debug(`${GREY}response ok: ${response.ok}${RESET}`);
         if (response.ok) {
-          const data = await response.json();
+          const data = await readJson(response);
+          clearTimeout(fetchTimeout);
           const reponse = gen === 1 ? data : (data as ShellyData).result;
           // console.log(`${GREY}Response from shelly gen ${CYAN}${gen}${GREY} host ${CYAN}${host}${GREY} service ${CYAN}${service}${GREY}:${RESET}`, reponse);
           return reponse as ShellyData;
@@ -148,7 +174,8 @@ export async function shellyFetch(
       clearTimeout(fetchTimeout);
       return null;
     }
-    const data = await response.json();
+    const data = await readJson(response);
+    clearTimeout(fetchTimeout);
     const reponse = gen === 1 ? data : (data as ShellyData).result;
     // console.log(`${GREY}Response from shelly gen ${CYAN}${gen}${GREY} host ${CYAN}${host}${GREY} service ${CYAN}${service}${GREY}:${RESET}`, reponse);
     return reponse as ShellyData;
