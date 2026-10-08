@@ -759,13 +759,17 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       const btHomeComponents: BTHomeComponent[] = [];
       let btHomePayload: BTHomeComponentPayload;
       let offset = 0;
+      // local change: the page count and total come from the peer - stop on a page without progress or past a sane bound
+      let previous = -1;
+      let pages = 0;
       do {
+        previous = offset;
         btHomePayload = (await shellyFetch(shelly, log, host, 'Shelly.GetComponents', { dynamic_only: true, offset })) as unknown as BTHomeComponentPayload;
         if (btHomePayload?.components) {
           btHomeComponents.push(...btHomePayload.components);
           offset += btHomePayload.components.length;
         }
-      } while (btHomePayload && offset < btHomePayload.total);
+      } while (btHomePayload && offset < btHomePayload.total && offset > previous && ++pages < 100 && btHomeComponents.length < 1000);
       // oxlint-disable-next-line no-bitwise
       componentsPayload = { components: btHomeComponents, cfg_rev: btHomePayload?.cfg_rev | 0, offset: 0, total: btHomeComponents.length };
       device.scanBTHomeComponents(btHomeComponents);
@@ -1374,14 +1378,18 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       const btHomeComponents: BTHomeComponent[] = [];
       let btHomePayload: BTHomeComponentPayload;
       let offset = 0;
+      // local change: the page count and total come from the peer - stop on a page without progress or past a sane bound
+      let previous = -1;
+      let pages = 0;
       do {
+        previous = offset;
         btHomePayload = (await shellyFetch(this.shelly, this.log, this.host, 'Shelly.GetComponents', { dynamic_only: true, offset })) as unknown as BTHomeComponentPayload;
         // v8 ignore else
         if (btHomePayload?.components) {
           btHomeComponents.push(...btHomePayload.components);
           offset += btHomePayload.components.length;
         }
-      } while (btHomePayload && offset < btHomePayload.total);
+      } while (btHomePayload && offset < btHomePayload.total && offset > previous && ++pages < 100 && btHomeComponents.length < 1000);
       // oxlint-disable-next-line no-bitwise
       this.componentsPayload = { components: btHomeComponents, cfg_rev: btHomePayload?.cfg_rev | 0, offset: 0, total: btHomeComponents.length };
     }
