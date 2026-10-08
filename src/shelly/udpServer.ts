@@ -104,9 +104,9 @@ interface UdpServerEvents {
   /** Emitted for a successful client-initiated RPC response. */
   udpresponse: [shellyId: string, result: ShellyData];
   /** Emitted for `NotifyStatus` and `NotifyFullStatus` notifications. */
-  udpupdate: [shellyId: string, params: ShellyData];
+  udpupdate: [shellyId: string, params: ShellyData, address: string];
   /** Emitted for `NotifyEvent` notifications. */
-  udpevent: [shellyId: string, params: ShellyData];
+  udpevent: [shellyId: string, params: ShellyData, address: string];
 }
 
 /**
@@ -269,9 +269,9 @@ export class UdpServer extends EventEmitter<UdpServerEvents> {
         this.log.debug(`Received UDP RPC message from ${message.src} at ${remoteInfo.address}:${remoteInfo.port}: ${debugStringify(message)}`);
         const shellyId = normalizeId(message.src).id;
         if ((message.method === 'NotifyStatus' || message.method === 'NotifyFullStatus') && message.params) {
-          this.emit('udpupdate', shellyId, message.params);
+          this.emit('udpupdate', shellyId, message.params, remoteInfo.address);
         } else if (message.method === 'NotifyEvent' && message.params) {
-          this.emit('udpevent', shellyId, message.params);
+          this.emit('udpevent', shellyId, message.params, remoteInfo.address);
         } else if (message.method === undefined && message.result !== undefined) {
           this.emit('udpresponse', shellyId, message.result);
         }

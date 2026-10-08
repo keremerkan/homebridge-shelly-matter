@@ -22,7 +22,9 @@
  */
 
 import crypto from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import EventEmitter from 'node:events';
+import { isIP } from 'node:net';
 
 import { type AnsiLogger, BRIGHT, CYAN, db, er, hk, LogLevel, MAGENTA, nf, wr, zb } from './utils/logger.js';
 import { getErrorMessage, isValidArray, isValidObject } from './utils/index.js';
@@ -141,10 +143,15 @@ export class Shelly extends EventEmitter<ShellyEvents> {
     });
 
     // Handle udpupdate from UdpServer
-    this.udpServer.on('udpupdate', (shellyId: string, params: ShellyData) => {
+    this.udpServer.on('udpupdate', async (shellyId: string, params: ShellyData, address: string) => {
       const device = this.getDevice(shellyId);
       if (!device) {
         this.log.debug(`Received udpupdate from a not registered device id ${hk}${shellyId}${db}`);
+        return;
+      }
+      // local change: the sender is named by the datagram itself - it must come from the device's own address
+      if (!(await senderMatchesHost(device.host, address))) {
+        this.log.debug(`Ignoring udpupdate for ${hk}${shellyId}${db} from ${address}: not the device host ${zb}${device.host}${db}`);
         return;
       }
       this.log.debug(`Received udpupdate from device id ${hk}${shellyId}${db} host ${zb}${device.host}${db}`);
@@ -162,10 +169,15 @@ export class Shelly extends EventEmitter<ShellyEvents> {
     });
 
     // Handle udpevent from UdpServer
-    this.udpServer.on('udpevent', (shellyId: string, params: ShellyData) => {
+    this.udpServer.on('udpevent', async (shellyId: string, params: ShellyData, address: string) => {
       const device = this.getDevice(shellyId);
       if (!device) {
         this.log.debug(`Received udpevent from a not registered device id ${hk}${shellyId}${db}`);
+        return;
+      }
+      // local change: the sender is named by the datagram itself - it must come from the device's own address
+      if (!(await senderMatchesHost(device.host, address))) {
+        this.log.debug(`Ignoring udpevent for ${hk}${shellyId}${db} from ${address}: not the device host ${zb}${device.host}${db}`);
         return;
       }
       this.log.debug(`Received udpevent from device id ${hk}${shellyId}${db} host ${zb}${device.host}${db}`);
@@ -525,4 +537,19 @@ export class Shelly extends EventEmitter<ShellyEvents> {
       this.log.debug(`- ${hk}${id}${db}: name ${CYAN}${device.name}${db} ip ${MAGENTA}${device.host}${db} model ${CYAN}${device.model}${db} auth ${CYAN}${device.auth}${db}`);
     }
   }
+}
+
+const hostAddresses = new Map<string, { addresses: string[]; at: number }>();
+
+/** local change: whether a UDP datagram's sender address is the device's host (an IP literal, or a name that resolves to it). */
+async function senderMatchesHost(host: string, address: string): Promise<boolean> {
+  const name = host.replace(/:\d+$/, '');
+  if (name === address) return true;
+  if (isIP(name)) return false;
+  let entry = hostAddresses.get(name);
+  if (!entry || Date.now() - entry.at > 5 * 60 * 1000) {
+    entry = { addresses: await lookup(name, { all: true }).then((results) => results.map((result) => result.address), () => []), at: Date.now() };
+    hostAddresses.set(name, entry);
+  }
+  return entry.addresses.includes(address);
 }
