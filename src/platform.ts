@@ -11,6 +11,7 @@ import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHE
 import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
+import { shellyFetch } from './shelly/shellyFetch.js';
 import type { ShellyComponent } from './shelly/shellyComponent.js';
 import { deepEqual, getErrorMessage } from './shelly/utils/index.js';
 import { WsClient } from './shelly/wsClient.js';
@@ -87,6 +88,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly uuidsByDevice = new Map<string, string[]>();
   /** The current rotation generation per device (see ShellyAccessoryContext.generation). */
   private readonly generationByDevice = new Map<string, number>();
+  /** Ids with an mDNS sighting being verified, and moves already warned about (an mDNS answer is unauthenticated). */
+  private readonly verifyingSightings = new Set<string>();
+  private readonly warnedSightings = new Set<string>();
   private dataPath = '';
   private stopped = false;
 
@@ -313,28 +317,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.log.debug(`Ignoring mDNS entry ${discovered.id} at ${discovered.host} - not a Shelly device id.`);
         return;
       }
-      // Record every sighting - including hidden devices, so the
-      // settings UI can list them for un-hiding.
-      if (discovered.gen === 1) this.shelly?.coapServer.start();
-      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen });
-      if (this.isHidden(discovered.id, discovered.host)) {
-        this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
-        return;
-      }
-      const existing = this.shelly?.getDevice(discovered.id);
-      if (existing) {
-        // A device added from a host-only entry stays on the configured host
-        // (a hostname keeps resolving to the device's current IP).
-        if (existing.host !== discovered.host && !this.configuredHostById.has(existing.id)) {
-          this.log.warn(`Shelly ${discovered.id} moved from ${existing.host} to ${discovered.host} - reconnecting.`);
-          existing.wsClient?.stop();
-          existing.setHost(discovered.host);
-          if (existing.gen === 1) void this.shelly?.coapServer.registerDevice(existing.host, existing.id, existing.sleepMode);
-          else existing.wsClient?.start();
-        }
-        return;
-      }
-      void this.addHost(discovered.host);
+      void this.handleSighting(discovered);
     });
 
     this.shelly.on('add', (device: ShellyDevice) => {
@@ -380,6 +363,79 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
     if (this.config.mdnsDiscover !== false) {
       this.shelly.mdnsScanner.start(0, 10 * 60 * 1000, this.config.interfaceName as string | undefined, 'udp4', this.config.debug === true);
+    }
+  }
+
+  /**
+   * An mDNS answer is unauthenticated: anyone on the LAN can announce a
+   * Shelly name at an address of their choosing. So a device is only moved to
+   * a new host - or created from an unknown one - after that host's open
+   * /shelly endpoint reports the announced MAC. That stops careless spoofs; a
+   * host that replays a genuine /shelly reply is indistinguishable for a device
+   * without authentication, and a device WITH authentication is only moved
+   * when trustMdnsHosts accepts that risk (credentials never prove the host:
+   * Basic hands the password to it).
+   */
+  private async handleSighting(discovered: DiscoveredDevice): Promise<void> {
+    const shelly = this.shelly;
+    if (!shelly) return;
+    if (discovered.gen === 1) shelly.coapServer.start();
+    const existing = shelly.getDevice(discovered.id);
+    const knownHost = existing?.host ?? this.knownDevices.get(discovered.id)?.host;
+    const moved = knownHost !== undefined && knownHost !== discovered.host;
+    // Record every sighting - including hidden devices, so the settings UI
+    // can list them for un-hiding. A known id at ANOTHER host is recorded
+    // only once that host is verified.
+    if (!moved) this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen });
+    if (this.isHidden(discovered.id, discovered.host)) {
+      this.log.debug(`Shelly ${discovered.id} is configured as hidden - skipping.`);
+      return;
+    }
+    if (existing) {
+      // A device added from a host-only entry stays on the configured host
+      // (a hostname keeps resolving to the device's current IP).
+      if (!moved || this.configuredHostById.has(existing.id)) return;
+      if (!(await this.verifySighting(discovered, existing.mac, true))) return;
+      this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen });
+      this.log.warn(`Shelly ${discovered.id} moved from ${existing.host} to ${discovered.host} - reconnecting.`);
+      existing.wsClient?.stop();
+      existing.setHost(discovered.host);
+      if (existing.gen === 1) void shelly.coapServer.registerDevice(existing.host, existing.id, existing.sleepMode);
+      else existing.wsClient?.start();
+      return;
+    }
+    if (!(await this.verifySighting(discovered, undefined, false))) return;
+    if (moved) this.rememberDevice({ id: discovered.id, host: discovered.host, gen: discovered.gen });
+    void this.addHost(discovered.host);
+  }
+
+  /** True when the announced host's /shelly reports the MAC the announcement names (or `knownMac` of the device being moved). */
+  private async verifySighting(discovered: DiscoveredDevice, knownMac: string | undefined, rebind: boolean): Promise<boolean> {
+    if (!this.shelly || this.verifyingSightings.has(discovered.id)) return false;
+    this.verifyingSightings.add(discovered.id);
+    try {
+      const info = await shellyFetch(this.shelly, this.shellyLog, discovered.host, 'shelly');
+      const hex = (value: unknown): string => (typeof value === 'string' ? value.replace(/[^0-9a-f]/gi, '').toUpperCase() : '');
+      const mac = hex(info?.mac);
+      const suffix = hex(/-([0-9a-f]{6,})$/i.exec(discovered.id)?.[1]);
+      const expected = knownMac ? hex(knownMac) : undefined;
+      const matches = mac !== '' && (expected ? mac === expected : suffix !== '' && mac.endsWith(suffix));
+      const key = `${discovered.id}@${discovered.host}`;
+      if (!matches) {
+        if (!this.warnedSightings.has(key)) this.log.warn(`Ignoring mDNS announcement of ${discovered.id} at ${discovered.host}: the host does not report that device's MAC address.`);
+        this.warnedSightings.add(key);
+        return false;
+      }
+      if (rebind && (info?.auth_en === true || info?.auth === true) && this.config.trustMdnsHosts !== true) {
+        if (!this.warnedSightings.has(key)) {
+          this.log.warn(`Shelly ${discovered.id} requires authentication and announced a new address ${discovered.host}; not following it automatically - update the host in the settings, or set trustMdnsHosts.`);
+        }
+        this.warnedSightings.add(key);
+        return false;
+      }
+      return true;
+    } finally {
+      this.verifyingSightings.delete(discovered.id);
     }
   }
 
