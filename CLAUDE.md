@@ -197,8 +197,11 @@ device table. devices.json records per-channel `kinds` for the UI.
   set RGBW's `white`; method names are the documented upper case). A color
   temperature is an RGB(W) mix; RGBW colors move their shared part to the
   white channel (`rgbToRgbw`) and are read back as rgb + white
-  (`rgbwToRgb`, with a `white` row so either channel recomputes); its echo in `rgb` is skipped
-  (`colorTempWrites`) so Home stays on the chosen white instead of a color.
+  (`rgbwToRgb`, with a `white` row so either channel recomputes); its echo is skipped
+  (`colorTempWrites`, matched per channel - rgb vs white - so event order does not
+  matter and a later change from the Shelly app clears it) so Home stays on the
+  chosen white instead of a color; with the record gone (restart) a full white
+  plus a matching tint reads back as that color temperature (`miredsFromRgbw`).
   Rig-verified (HB 2.4.0 / matter.js 0.17.9), do not undo:
   `coupleColorTempToLevelMinMireds` is mandatory with ColorTemperature;
   a `stopAllColorMovement` handler must exist (matter.js calls it on every

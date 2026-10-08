@@ -56,6 +56,10 @@ export function rgbToXy([r, g, b]: Rgb): { x: number; y: number } {
   return { x: Math.min(Math.round((X / sum) * XY_SCALE), XY_MAX), y: Math.min(Math.round((Y / sum) * XY_SCALE), XY_MAX) };
 }
 
+/** The color temperature range the light declares (colorTempPhysicalMin/MaxMireds). */
+export const MIREDS_MIN = 153;
+export const MIREDS_MAX = 500;
+
 /** The RGB mix closest to a white of this color temperature (Tanner Helland's blackbody fit). */
 export function miredsToRgb(mireds: number): Rgb {
   const t = 1e6 / Math.max(mireds, 1) / 100;
@@ -66,18 +70,31 @@ export function miredsToRgb(mireds: number): Rgb {
 }
 
 /**
- * RGBW: the white channel carries the light and the RGB channels only the
- * tint beyond neutral - warm whites add red/green, cool whites hardly any.
- */
-export const miredsToRgbw = (mireds: number): { rgb: Rgb; white: number } => ({ rgb: rgbToRgbw(miredsToRgb(mireds)).rgb, white: 255 });
-
-/**
  * RGBW colors: the part all three color channels share moves to the white
  * channel, so pale colors use the white LEDs; saturated colors are unchanged.
  */
 export function rgbToRgbw(rgb: Rgb): { rgb: Rgb; white: number } {
   const white = Math.min(...rgb);
   return { rgb: rgb.map((c) => c - white) as Rgb, white };
+}
+
+/** RGBW color temperature: full white plus only the tint beyond neutral (see rgbToRgbw). */
+export const miredsToRgbw = (mireds: number): { rgb: Rgb; white: number } => ({ rgb: rgbToRgbw(miredsToRgb(mireds)).rgb, white: 255 });
+
+/**
+ * The color temperature an RGBW mix was written as (a restart forgets the
+ * write), or undefined when it is a color: full white plus a tint that
+ * matches miredsToRgbw closely enough.
+ */
+export function miredsFromRgbw(rgb: Rgb, white: number): number | undefined {
+  if (white !== 255) return undefined;
+  let best: { mireds: number; diff: number } | undefined;
+  for (let mireds = MIREDS_MIN; mireds <= MIREDS_MAX; mireds++) {
+    const tint = miredsToRgbw(mireds).rgb;
+    const diff = rgb.reduce((sum, c, i) => sum + Math.abs(c - tint[i]), 0);
+    if (!best || diff < best.diff) best = { mireds, diff };
+  }
+  return best && best.diff <= 6 ? best.mireds : undefined;
 }
 
 /** The color an RGBW mix shows: white adds to all three channels (the inverse of rgbToRgbw). */

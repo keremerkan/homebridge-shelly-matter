@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Color lights (RGBW): a color temperature chosen in Home no longer flips to a color when the device reports `white` before `rgb`, a white level changed in the Shelly app is no longer ignored after a color temperature was set, and a warm white is shown as a color temperature again after a restart instead of pure white.
 - Settings table: the RPC-over-UDP hint no longer claims a device's destination is "not this host" when it may only be waiting for a restart or have a different listen port; it now says what to check.
 - Settings form: the device's "Accessory type" help text started with a stray ". " and lacked its first sentence.
 - Settings table: rows are labelled by what they are (`ch N` for relays, `meter N` for meters, `total`/`phase A–C` on three-phase meters, the probe kind for add-on sensors) instead of by table position, so a label no longer changes meaning when the row set changes, e.g. when the first clamp moves onto the relay ([#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7)).

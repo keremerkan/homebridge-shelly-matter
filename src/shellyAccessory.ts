@@ -5,7 +5,7 @@ type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
 import { ADDON_INDEX_MIN, type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
-import { hueSatToRgb, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToRgbw, rgbToXy, rgbwToRgb, xyToRgb } from './color.js';
+import { hueSatToRgb, MIREDS_MAX, MIREDS_MIN, miredsFromRgbw, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToRgbw, rgbToXy, rgbwToRgb, xyToRgb } from './color.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import { shellyFetch } from './shelly/shellyFetch.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -68,31 +68,48 @@ const levelFromBrightness = (brightness: number): number => Math.max(1, Math.rou
 
 /**
  * The RGB(W) mix last written for a color temperature, per light. The device
- * echoes that mix back as `rgb`; mapping the echo to hue/saturation would
- * switch Home from the chosen white to a color, so it is skipped.
+ * echoes it back as `rgb` (and `white`); mapping the echo to hue/saturation
+ * would switch Home from the chosen white to a color, so it is skipped. The
+ * channels match separately, so the echo is dropped whichever arrives first,
+ * and the first event that differs (a change in the Shelly app) drops the record.
  */
-const colorTempWrites = new WeakMap<ShellyComponent, string>();
+const colorTempWrites = new WeakMap<ShellyComponent, { rgb: string; white: number }>();
 /** Last known hue/saturation per light (device reports and commands): single-axis commands keep the other axis. */
 const knownHueSat = new WeakMap<ShellyComponent, { hue: number; saturation: number }>();
 
 /**
  * Gen 2+ RGB/RGBW color in one RGB.Set / RGBW.Set call (the vendored ColorRGB
- * cannot set the RGBW white channel). RGBW colors move their white part to the
- * white channel; color temperatures come with their own white/tint mix.
+ * cannot set the RGBW white channel). `white` given = a color temperature,
+ * sent as its own mix; without it an RGBW color moves its white part to the
+ * white channel.
  */
-function setLightColor(component: ShellyComponent, color: Rgb, colorWhite: number, colorTemp: boolean): void {
-  const { rgb, white } = component.name === 'Rgbw' && !colorTemp ? rgbToRgbw(color) : { rgb: color, white: colorWhite };
-  if (colorTemp) colorTempWrites.set(component, JSON.stringify(rgb));
+function setLightColor(component: ShellyComponent, color: Rgb, colorTempWhite?: number): void {
+  const { rgb, white } = colorTempWhite !== undefined || component.name !== 'Rgbw' ? { rgb: color, white: colorTempWhite ?? 0 } : rgbToRgbw(color);
+  if (colorTempWhite !== undefined) colorTempWrites.set(component, { rgb: JSON.stringify(rgb), white });
   else colorTempWrites.delete(component);
   const params = { id: component.index, rgb, ...(component.name === 'Rgbw' ? { white } : {}) };
   void shellyFetch(component.device.shelly, component.device.log, component.device.host, `${component.name.toUpperCase()}.Set`, params);
 }
 
-/** The device's color (`rgb`, plus `white` on RGBW) as Matter hue/saturation and x/y (colorMode 0 = hue/saturation). */
-function colorFragment(value: ShellyDataType, white: ShellyDataType, component?: ShellyComponent): ClusterState | undefined {
-  if (!Array.isArray(value) || value.length !== 3 || !value.every((c) => isValidNumber(c, 0, 255))) return undefined;
-  if (component && colorTempWrites.get(component) === JSON.stringify(value)) return undefined;
-  const rgb = rgbwToRgb(value as Rgb, isValidNumber(white, 0, 255) ? white : 0);
+/**
+ * The device's color as Matter hue/saturation and x/y (colorMode 0 = hue/saturation).
+ * `changed` is the property that just updated with `value` (the vendored `setValue`
+ * emits before it stores); the other channel is read from the component.
+ */
+function colorFragment(component: ShellyComponent | undefined, changed: 'rgb' | 'white', value: ShellyDataType): ClusterState | undefined {
+  const sent = component && colorTempWrites.get(component);
+  if (sent) {
+    if (changed === 'rgb' ? JSON.stringify(value) === sent.rgb : value === sent.white) return undefined;
+    colorTempWrites.delete(component);
+  }
+  const rgbValue = changed === 'rgb' ? value : component?.getValue('rgb');
+  const whiteValue = changed === 'white' ? value : component?.name === 'Rgbw' && component.hasProperty('white') ? component.getValue('white') : 0;
+  if (!Array.isArray(rgbValue) || rgbValue.length !== 3 || !rgbValue.every((c) => isValidNumber(c, 0, 255))) return undefined;
+  const white = isValidNumber(whiteValue, 0, 255) ? whiteValue : 0;
+  // A restart forgets the color-temperature write: a full white plus a matching tint is that white, not a color.
+  const mireds = component?.name === 'Rgbw' ? miredsFromRgbw(rgbValue as Rgb, white) : undefined;
+  if (mireds !== undefined) return { colorMode: 2, colorTemperatureMireds: mireds };
+  const rgb = rgbwToRgb(rgbValue as Rgb, white);
   const { hue, saturation } = rgbToHueSat(rgb);
   if (component) knownHueSat.set(component, { hue, saturation });
   const { x, y } = rgbToXy(rgb);
@@ -167,8 +184,8 @@ const PROPERTY_MAP: PropertyRow[] = [
   { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer', 'color'] },
   { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer', 'color'] },
   // RGBW: the color shown is rgb + white, so either channel changing recomputes it.
-  { property: 'rgb', cluster: 'colorControl', convert: (v, c) => colorFragment(v, c?.name === 'Rgbw' && c.hasProperty('white') ? c.getValue('white') : 0, c), kinds: ['color'] },
-  { property: 'white', cluster: 'colorControl', convert: (v, c) => (c?.hasProperty('rgb') ? colorFragment(c.getValue('rgb'), v, c) : undefined), kinds: ['color'] },
+  { property: 'rgb', cluster: 'colorControl', convert: (v, c) => colorFragment(c, 'rgb', v), kinds: ['color'] },
+  { property: 'white', cluster: 'colorControl', convert: (v, c) => (c?.hasProperty('rgb') ? colorFragment(c, 'white', v) : undefined), kinds: ['color'] },
   { property: 'current_pos', cluster: 'windowCovering', convert: (v) => (isValidNumber(v, 0, 100) ? { currentPositionLiftPercent100ths: liftFromPosition(v) } : undefined), kinds: ['cover'] },
   { property: 'state', cluster: 'windowCovering', convert: (v) => (typeof v === 'string' ? { operationalStatus: OPERATIONAL_STATUS[v] ?? OPERATIONAL_STOPPED } : undefined), kinds: ['cover'] },
   { property: 'apower', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activePower: milli(v) } : undefined), metered: true },
@@ -400,7 +417,7 @@ const PART_SHAPES: Record<PartToken, PartShape> = {
       levelControl: { currentLevel: 254 },
       // colorMode 0 = hue/saturation; the color temperature range is what the RGB(W) mix can approximate
       // (coupleColorTempToLevelMinMireds is mandatory with the ColorTemperature feature).
-      colorControl: { colorMode: 0, currentHue: 0, currentSaturation: 0, currentX: 20493, currentY: 21561, colorTemperatureMireds: 250, colorTempPhysicalMinMireds: 153, colorTempPhysicalMaxMireds: 500, coupleColorTempToLevelMinMireds: 153 },
+      colorControl: { colorMode: 0, currentHue: 0, currentSaturation: 0, currentX: 20493, currentY: 21561, colorTemperatureMireds: 250, colorTempPhysicalMinMireds: MIREDS_MIN, colorTempPhysicalMaxMireds: MIREDS_MAX, coupleColorTempToLevelMinMireds: MIREDS_MIN },
     },
   },
   temperature: { kind: 'temperature', deviceType: 'TemperatureSensor', clusters: { temperatureMeasurement: { measuredValue: null } } },
@@ -513,17 +530,17 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     // Homebridge's async stopAllColorMovement, so the conversion lands after
     // the command and overwrites it (a white picked after a color showed the
     // color's temperature).
-    const target: { rgb: Rgb; white: number; colorTemp: boolean; state: ClusterState } = { rgb: [255, 255, 255], white: 0, colorTemp: false, state: {} };
+    const target: { rgb: Rgb; white?: number; state: ClusterState } = { rgb: [255, 255, 255], state: {} };
     let scheduled = false;
-    const send = (rgb: Rgb, state: ClusterState, white = 0, colorTemp = false): void => {
-      Object.assign(target, { rgb, white, colorTemp, state });
+    const send = (rgb: Rgb, state: ClusterState, white?: number): void => {
+      Object.assign(target, { rgb, white, state });
       if (scheduled) return;
       scheduled = true;
       setImmediate(() => {
         scheduled = false;
         const component = resolve('set the color of');
         if (!isLightComponent(component)) return;
-        setLightColor(component, target.rgb, target.white, target.colorTemp);
+        setLightColor(component, target.rgb, target.white);
         void platform.matter.updateAccessoryState(uuid, 'colorControl', target.state, partId);
       });
     };
@@ -537,8 +554,8 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
       const state = { colorTemperatureMireds: mireds };
       if (platform.shellyComponent(deviceId, componentId)?.name === 'Rgbw') {
         const { rgb, white } = miredsToRgbw(mireds);
-        send(rgb, state, white, true);
-      } else send(miredsToRgb(mireds), state, 0, true);
+        send(rgb, state, white);
+      } else send(miredsToRgb(mireds), state, 0);
     };
     handlers.colorControl = {
       moveToHueAndSaturationLogic: ((request: { hue: number; saturation: number }) => hueSat({ hue: request.hue, saturation: request.saturation })) as never,
