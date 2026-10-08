@@ -88,7 +88,7 @@ function setLightColor(component: ShellyComponent, color: Rgb, colorTempWhite?: 
   if (colorTempWhite !== undefined) colorTempWrites.set(component, { rgb: JSON.stringify(rgb), white });
   else colorTempWrites.delete(component);
   const params = { id: component.index, rgb, ...(component.name === 'Rgbw' ? { white } : {}) };
-  void shellyFetch(component.device.shelly, component.device.log, component.device.host, `${component.name.toUpperCase()}.Set`, params);
+  void shellyFetch(component.device.shelly, component.device.log, component.device.host, component.device.port, `${component.name.toUpperCase()}.Set`, params);
 }
 
 /**

@@ -52,6 +52,20 @@ function udpDestinationOf(device: ShellyDevice): string | null {
   return typeof destination === 'string' ? destination : null;
 }
 
+/**
+ * Device addresses as the plugin stores them: `host`, or `host:port` for a
+ * device behind a Shelly Range Extender (#5). The Shelly layer takes the two
+ * separately.
+ */
+function splitAddress(address: string): { host: string; port: number } {
+  const match = /^([^:]+):(\d+)$/.exec(address);
+  return match ? { host: match[1], port: Number(match[2]) } : { host: address, port: 80 };
+}
+
+function addressOf(device: { host: string; port: number }): string {
+  return device.port === 80 ? device.host : `${device.host}:${device.port}`;
+}
+
 /** The first external IPv4 address of the given interface, or of the first interface that has one. */
 function localIpv4(interfaceName?: string): string | undefined {
   const all = networkInterfaces();
@@ -180,8 +194,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   }
 
   /** The host string config entries are matched against for a device (its host-only entry's host when added from one). */
-  configHost(device: { id: string; host: string }): string {
-    return this.configuredHostById.get(device.id) ?? device.host;
+  configHost(device: { id: string; host: string; port: number }): string {
+    return this.configuredHostById.get(device.id) ?? addressOf(device);
   }
 
   /** A component of a connected device, or undefined while it is offline. */
@@ -331,16 +345,16 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       if (existing) {
         // A device added from a host-only entry stays on the configured host
         // (a hostname keeps resolving to the device's current IP).
-        if (existing.host !== discovered.host && !this.configuredHostById.has(existing.id)) {
-          this.log.warn(`Shelly ${discovered.id} moved from ${existing.host} to ${discovered.host} - reconnecting.`);
+        if (addressOf(existing) !== addressOf(discovered) && !this.configuredHostById.has(existing.id)) {
+          this.log.warn(`Shelly ${discovered.id} moved from ${addressOf(existing)} to ${addressOf(discovered)} - reconnecting.`);
           existing.wsClient?.stop();
-          existing.setHost(discovered.host);
+          existing.setHost(discovered.host, discovered.port);
           if (existing.gen === 1) void this.shelly?.coapServer.registerDevice(existing.host, existing.id, existing.sleepMode);
           else existing.wsClient?.start();
         }
         return;
       }
-      void this.addHost(discovered.host);
+      void this.addHost(addressOf(discovered));
     });
 
     this.shelly.on('add', (device: ShellyDevice) => {
@@ -414,7 +428,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    * attempt when the host is unreachable (off for one-shot wake-up attempts).
    */
   private async addHost(host: string, hostOnlyEntry = false, retry = true): Promise<void> {
-    if (!this.shelly || this.shelly.hasDeviceHost(host) || this.creatingHosts.has(host)) return;
+    if (!this.shelly || this.shelly.devices.some((device) => addressOf(device) === host) || this.creatingHosts.has(host)) return;
     // One retry chain per host (config entry and mDNS sighting both arrive
     // here), and one-shot attempts (a CoIoT report) no more often than the
     // retry cadence - every attempt is a full fetch sequence with timeouts.
@@ -422,7 +436,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     if (!retry && Date.now() - (this.lastCreateAttempt.get(host) ?? 0) < HOST_RETRY_MS) return;
     this.lastCreateAttempt.set(host, Date.now());
     this.creatingHosts.add(host);
-    const device = await ShellyDevice.create(this.shelly, this.shellyLog, host)
+    const { host: name, port } = splitAddress(host);
+    const device = await ShellyDevice.create(this.shelly, this.shellyLog, name, port)
       .catch((error: unknown) => {
         this.log.error(`Error creating Shelly device at ${host}: ${getErrorMessage(error)}`);
         return undefined;
@@ -480,7 +495,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       device.destroy();
       return false;
     }
-    device.setHost(host);
+    const { host: name, port } = splitAddress(host);
+    device.setHost(name, port);
     device.cached = true;
     device.online = false;
     this.log.info(`Shelly ${device.id} at ${host} is a sleeping device - restored from its last saved state; live values arrive when it next reports.`);

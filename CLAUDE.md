@@ -14,7 +14,7 @@ No HAP accessories are published; the plugin runs best in a child bridge with
 
 - `src/shelly/` — **vendored** Shelly protocol layer from
   [Luligu/matterbridge-shelly](https://github.com/Luligu/matterbridge-shelly)
-  **release 2.6.0** (Apache-2.0, see `NOTICE`). Keep diffs against upstream
+  **release 2.7.0** (Apache-2.0, see `NOTICE`). Keep diffs against upstream
   MINIMAL so future syncs stay easy: the only local changes are import
   rewrites (`matterbridge/logger` and `node-ansi-logger` → the local
   `./utils/logger.js` shim, `matterbridge/utils` → `./utils/index.js`,
@@ -33,18 +33,21 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   message in `shelly.ts`) — Gen2 idle-socket reconnect cycling is normal and
   was too noisy at info — the mdnsScanner 'warning' handler downgraded
   `log.warn` → `log.debug` (fires for every malformed mDNS packet from any LAN
-  device; harmless, issue #4), and the wsClient constructor skipping the
-  default `:80` when the host already carries a port (Shelly Range Extender
-  hosts are `extender-ip:port`, issue #5; same bug reported upstream), plus
+  device; harmless, issue #4), plus
   hardening from PR #18 (each marked `local change:` in the code): device ids
   must be plain file names before they name files in the data directory
   (`shellyDevice.ts` `create`/`saveDevicePayloads`, `mdnsScanner.ts` and
   `coapServer.ts` `saveResponse`); the `Shelly.GetComponents` paging loops stop
   without progress or past a bound (`shellyDevice.ts`); `shellyFetch.ts`
-  redacts the Authorization header in its debug log and reads bodies through
-  `readJson` (8 MiB cap, abort timer stays armed); `devicepower:N` components
+  redacts the Authorization header in its debug log, caps bodies at 8 MiB in
+  its `fetch` wrapper and keeps the abort timer armed through the 401 retry
+  and the body read; `devicepower:N` components
   limited to 0-15 and one sleeping-device refresh at a time, every 30 s
-  (`shellyDevice.ts`). Do not refactor or "improve" this layer.
+  (`shellyDevice.ts`). Do not refactor or "improve" this layer. Since 2.7.0
+  the layer takes host and port separately (`ShellyDevice.create`,
+  `shellyFetch`, `setHost`; port 443 = https/wss); the plugin keeps addresses
+  as `host` or `host:port` (Range Extender, issue #5) in config and
+  devices.json and splits them in `platform.ts` (`splitAddress`/`addressOf`).
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
 - `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).
@@ -290,6 +293,8 @@ device table. devices.json records per-channel `kinds` for the UI.
   from a merged-clamp cache); `fixtures/buttons.mjs` covers button mapping
   and press forwarding (Gen 1 counters, Gen 2+ events); `fixtures/color.mjs`
   covers color conversions, mapping, handlers and the color-temperature echo;
+  `fixtures/port-loopback.mjs` runs the protocol layer against a fake Gen 2
+  device on a non-default port over real HTTP/WebSocket (Range Extender);
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
   stub api through 7 simulated restarts (upgrade detect → rotation → stable →
   OTA in place → metering off → cache loss). Keep new device payloads there,
