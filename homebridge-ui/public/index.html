@@ -139,7 +139,7 @@
         const udpOn = config.rpcOverUdp === true;
         if (device.udpDestination) {
           parts.push(udpOn
-            ? `<span class="text-warning">device sends UDP to ${escapeAttr(device.udpDestination)}, which is not this host - fix the device setting or it will use WebSocket</span>`
+            ? `<span class="text-warning">device sends UDP to ${escapeAttr(device.udpDestination)} but last connected over WebSocket - its destination must be the address the Homebridge log shows at startup ("RPC over UDP enabled"), with listen port 8585; restart Homebridge after changing it</span>`
             : `<span class="text-warning">device is configured for RPC over UDP (${escapeAttr(device.udpDestination)}) but the plugin option is off</span>`);
         } else if (udpOn && device.sleeping) {
           parts.push('<span class="text-warning">battery device: configure RPC over UDP on it to receive its reports</span>');

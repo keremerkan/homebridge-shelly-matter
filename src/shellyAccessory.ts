@@ -1027,13 +1027,15 @@ const GEN2_GESTURES: Record<string, Gesture> = { single_push: 'singlePress', dou
  */
 function attachButton(platform: ShellyMatterPlatform, uuid: string, partId: string, component: ShellyComponent): void {
   let queue = Promise.resolve();
-  // `event` is the Shelly press as reported; with debug logging each press shows how far it got.
+  // `event` is the Shelly press as reported. The device's own logger follows
+  // the plugin's "Debug logging" option (Homebridge's log.debug needs
+  // Homebridge itself in debug mode), so each press shows how far it got.
   const emit = (event: string, gesture: Gesture | undefined): void => {
-    platform.log.debug(`Shelly ${component.device.id} ${component.id}: ${event} -> ${gesture ?? 'no Matter gesture, ignored'}`);
+    component.device.log.debug(`Button ${component.id}: press "${event}" -> ${gesture ?? 'no Matter gesture, ignored'}`);
     if (!gesture) return;
     queue = queue
       .then(() => platform.matter.switch.emitGesture(uuid, gesture, { partId }))
-      .catch((error) => platform.log.debug(`Button ${component.id} of ${component.device.id}: ${getErrorMessage(error)}`));
+      .catch((error) => platform.log.warn(`Shelly ${component.device.id} ${component.id}: could not send the ${gesture} to Matter: ${getErrorMessage(error)}`));
   };
   component.on('event', (_componentId: string, event: string) => emit(event, GEN2_GESTURES[event]));
   let count = component.hasProperty('event_cnt') ? component.getValue('event_cnt') : undefined;
