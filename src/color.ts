@@ -69,8 +69,16 @@ export function miredsToRgb(mireds: number): Rgb {
  * RGBW: the white channel carries the light and the RGB channels only the
  * tint beyond neutral - warm whites add red/green, cool whites hardly any.
  */
-export function miredsToRgbw(mireds: number): { rgb: Rgb; white: number } {
-  const rgb = miredsToRgb(mireds);
-  const neutral = Math.min(...rgb);
-  return { rgb: rgb.map((c) => c - neutral) as Rgb, white: 255 };
+export const miredsToRgbw = (mireds: number): { rgb: Rgb; white: number } => ({ rgb: rgbToRgbw(miredsToRgb(mireds)).rgb, white: 255 });
+
+/**
+ * RGBW colors: the part all three color channels share moves to the white
+ * channel, so pale colors use the white LEDs; saturated colors are unchanged.
+ */
+export function rgbToRgbw(rgb: Rgb): { rgb: Rgb; white: number } {
+  const white = Math.min(...rgb);
+  return { rgb: rgb.map((c) => c - white) as Rgb, white };
 }
+
+/** The color an RGBW mix shows: white adds to all three channels (the inverse of rgbToRgbw). */
+export const rgbwToRgb = (rgb: Rgb, white: number): Rgb => rgb.map((c) => channel(c + white)) as Rgb;

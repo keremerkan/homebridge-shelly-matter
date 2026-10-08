@@ -195,7 +195,9 @@ device table. devices.json records per-channel `kinds` for the UI.
   ColorTemperature), so all three handlers must exist. Colors go out as
   `RGB.Set` / `RGBW.Set` via `setLightColor` (the vendored `ColorRGB` cannot
   set RGBW's `white`; method names are the documented upper case). A color
-  temperature is an RGB(W) mix; its echo in `rgb` is skipped
+  temperature is an RGB(W) mix; RGBW colors move their shared part to the
+  white channel (`rgbToRgbw`) and are read back as rgb + white
+  (`rgbwToRgb`, with a `white` row so either channel recomputes); its echo in `rgb` is skipped
   (`colorTempWrites`) so Home stays on the chosen white instead of a color.
   Rig-verified (HB 2.4.0 / matter.js 0.17.9), do not undo:
   `coupleColorTempToLevelMinMireds` is mandatory with ColorTemperature;

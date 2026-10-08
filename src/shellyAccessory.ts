@@ -5,7 +5,7 @@ type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
 import { ADDON_INDEX_MIN, type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
-import { hueSatToRgb, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToXy, xyToRgb } from './color.js';
+import { hueSatToRgb, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToRgbw, rgbToXy, rgbwToRgb, xyToRgb } from './color.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import { shellyFetch } from './shelly/shellyFetch.js';
 import type { ShellyDevice } from './shelly/shellyDevice.js';
@@ -75,19 +75,24 @@ const colorTempWrites = new WeakMap<ShellyComponent, string>();
 /** Last known hue/saturation per light (device reports and commands): single-axis commands keep the other axis. */
 const knownHueSat = new WeakMap<ShellyComponent, { hue: number; saturation: number }>();
 
-/** Gen 2+ RGB/RGBW color in one RGB.Set / RGBW.Set call (the vendored ColorRGB cannot set the RGBW white channel). */
-function setLightColor(component: ShellyComponent, rgb: Rgb, white: number, colorTemp: boolean): void {
+/**
+ * Gen 2+ RGB/RGBW color in one RGB.Set / RGBW.Set call (the vendored ColorRGB
+ * cannot set the RGBW white channel). RGBW colors move their white part to the
+ * white channel; color temperatures come with their own white/tint mix.
+ */
+function setLightColor(component: ShellyComponent, color: Rgb, colorWhite: number, colorTemp: boolean): void {
+  const { rgb, white } = component.name === 'Rgbw' && !colorTemp ? rgbToRgbw(color) : { rgb: color, white: colorWhite };
   if (colorTemp) colorTempWrites.set(component, JSON.stringify(rgb));
   else colorTempWrites.delete(component);
   const params = { id: component.index, rgb, ...(component.name === 'Rgbw' ? { white } : {}) };
   void shellyFetch(component.device.shelly, component.device.log, component.device.host, `${component.name.toUpperCase()}.Set`, params);
 }
 
-/** The device's `rgb` as Matter hue/saturation and x/y (colorMode 0 = hue/saturation). */
-function colorFragment(value: ShellyDataType, component?: ShellyComponent): ClusterState | undefined {
+/** The device's color (`rgb`, plus `white` on RGBW) as Matter hue/saturation and x/y (colorMode 0 = hue/saturation). */
+function colorFragment(value: ShellyDataType, white: ShellyDataType, component?: ShellyComponent): ClusterState | undefined {
   if (!Array.isArray(value) || value.length !== 3 || !value.every((c) => isValidNumber(c, 0, 255))) return undefined;
   if (component && colorTempWrites.get(component) === JSON.stringify(value)) return undefined;
-  const rgb = value as Rgb;
+  const rgb = rgbwToRgb(value as Rgb, isValidNumber(white, 0, 255) ? white : 0);
   const { hue, saturation } = rgbToHueSat(rgb);
   if (component) knownHueSat.set(component, { hue, saturation });
   const { x, y } = rgbToXy(rgb);
@@ -161,7 +166,9 @@ const gasAlarmFragment = (mode: GasAlarmMode) => (v: ShellyDataType): ClusterSta
 const PROPERTY_MAP: PropertyRow[] = [
   { property: 'state', cluster: 'onOff', convert: (v) => (typeof v === 'boolean' ? { onOff: v } : undefined), kinds: ['switch', 'dimmer', 'color'] },
   { property: 'brightness', cluster: 'levelControl', convert: (v) => (isValidNumber(v, 0, 100) ? { currentLevel: levelFromBrightness(v) } : undefined), kinds: ['dimmer', 'color'] },
-  { property: 'rgb', cluster: 'colorControl', convert: colorFragment, kinds: ['color'] },
+  // RGBW: the color shown is rgb + white, so either channel changing recomputes it.
+  { property: 'rgb', cluster: 'colorControl', convert: (v, c) => colorFragment(v, c?.name === 'Rgbw' && c.hasProperty('white') ? c.getValue('white') : 0, c), kinds: ['color'] },
+  { property: 'white', cluster: 'colorControl', convert: (v, c) => (c?.hasProperty('rgb') ? colorFragment(c.getValue('rgb'), v, c) : undefined), kinds: ['color'] },
   { property: 'current_pos', cluster: 'windowCovering', convert: (v) => (isValidNumber(v, 0, 100) ? { currentPositionLiftPercent100ths: liftFromPosition(v) } : undefined), kinds: ['cover'] },
   { property: 'state', cluster: 'windowCovering', convert: (v) => (typeof v === 'string' ? { operationalStatus: OPERATIONAL_STATUS[v] ?? OPERATIONAL_STOPPED } : undefined), kinds: ['cover'] },
   { property: 'apower', cluster: 'electricalPowerMeasurement', convert: (v) => (isValidNumber(v, 0) ? { activePower: milli(v) } : undefined), metered: true },
