@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+Hardening against other hosts on the local network (found in a source audit; mDNS announcements, UDP reports and a device's self-reported id were trusted):
+
+- **The Shelly password is only sent to hosts saved in the settings.** Previously any host that answered 401 got it (cleartext Basic auth for Gen 1, a digest over the host's own nonce for Gen 2+), including hosts only an mDNS announcement had named. Devices found via mDNS only keep working without a password; protected ones need their host in the settings (the settings table saves it for every device) or the new `trustMdnsHosts` option, which restores the old behavior.
+- **mDNS announcements are verified.** A device is moved to a new address, or created from an unknown one, only if that host's open `/shelly` endpoint reports the announced MAC address. A device with authentication is only followed to a new address with `trustMdnsHosts`. A host that replays a genuine `/shelly` reply cannot be told apart for a device without authentication.
+- **Device ids must be plain file names** before they name cache files, so a device cannot make the plugin write `.json` files outside its data directory.
+- **RPC-over-UDP notifications must come from the device's own address.**
+- **Settings table:** an already configured host is no longer overwritten by the one just sighted by Scan network, and a device that reports a non-string name or model no longer leaves the device table empty.
+- **Limits for what a peer can cause:** `Shelly.GetComponents` paging stops without progress, response bodies are capped at 8 MiB and time-limited, `devicepower` components and sleeping-device refreshes are bounded, and devices found via mDNS are capped (stored rows, retry chains, concurrent attempts, backing-off retries up to 30 minutes).
+- The Gen 1 Basic `Authorization` header is no longer written to the debug log.
+
 ## [0.9.2] - 2026-09-17
 
 ### Changed

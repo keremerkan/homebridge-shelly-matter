@@ -230,6 +230,8 @@ Devices need no entry at all when the defaults fit — entries only record devia
 
 The platform also accepts `rpcOverUdp` (default `false`): see [RPC over UDP](#rpc-over-udp-gen-2) below. It also accepts `mdnsDiscover` (default `true`). Set it to `false` to turn off background mDNS discovery — devices with a configured `host` still connect directly, so this is safe once every device has a fixed IP. New devices are then added by IP in this list, or via the settings UI's **Scan network** button (which runs a one-off scan regardless of this setting).
 
+`trustMdnsHosts` (default `false`) controls where the Shelly `password` is sent. By default only to the `host` saved in a device entry (the settings table saves every device's host when you apply it); a device that was only found via mDNS is not given the password until its host is in the settings. Any device on your network can announce itself via mDNS, so only set `trustMdnsHosts` to `true` on a network you trust. Likewise, a device that requires authentication is not moved to a new address announced via mDNS unless the option is on: update its `host` in the settings instead.
+
 ## RPC over UDP (Gen 2+)
 
 Gen 2+ devices normally report state changes over a WebSocket the plugin keeps

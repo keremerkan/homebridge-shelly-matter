@@ -35,8 +35,21 @@ No HAP accessories are published; the plugin runs best in a child bridge with
   `log.warn` → `log.debug` (fires for every malformed mDNS packet from any LAN
   device; harmless, issue #4), and the wsClient constructor skipping the
   default `:80` when the host already carries a port (Shelly Range Extender
-  hosts are `extender-ip:port`, issue #5; same bug reported upstream). Do not
-  refactor or "improve" this layer.
+  hosts are `extender-ip:port`, issue #5; same bug reported upstream), plus the
+  security-audit hardening (each marked `local change:` in the code): device
+  ids must be plain file names before they name files in the data directory
+  (`shellyDevice.ts` `create`/`saveDevicePayloads`, `mdnsScanner.ts` and
+  `coapServer.ts` `saveResponse`); the password goes only to hosts from the
+  settings unless `trustMdnsHosts` (`shelly.ts` `trustedHosts`/`isTrustedHost`,
+  the 401 branch of `shellyFetch.ts`, the `WsClient` password in
+  `shellyDevice.ts`); RPC-over-UDP notifications must come from the device's
+  own address (`udpServer.ts` passes the sender, `shelly.ts` `senderMatchesHost`);
+  the `Shelly.GetComponents` paging loops stop without progress or past a bound
+  (`shellyDevice.ts`); `shellyFetch.ts` redacts the Authorization header in its
+  debug log and reads bodies through `readJson` (8 MiB cap, abort timer stays
+  armed); `devicepower:N` components limited to 0-15 and one sleeping-device
+  refresh at a time, every 30 s (`shellyDevice.ts`). Do not refactor or
+  "improve" this layer.
 - `src/*.ts` (top level) — the plugin proper: `platform.ts` (lifecycle),
   `shellyAccessory.ts` (device→Matter mapping), `deviceConfig.ts` (config model).
 - `homebridge-ui/` — custom settings UI (`@homebridge/plugin-ui-utils`).
