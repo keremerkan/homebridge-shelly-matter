@@ -967,12 +967,18 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
     }
 
     // Emitted when a sleepy device wakes up by WsServer and CoapServer (via Shelly.on('update')). We update the cache file and register the device with Coap.
+    // local change: every report of a sleeping device re-fetches it - one refresh at a time, at most every 30 s
+    let awakeBusy = false;
+    let lastAwake = 0;
     // oxlint-disable-next-line typescript/no-misused-promises
     device.on('awake', async () => {
       log.debug(`Device ${hk}${device.id}${db} host ${zb}${device.host}${db} is awake (cached: ${device.cached}).`);
       const cached = device.cached;
       // v8 ignore else
       if (device.sleepMode) {
+        if (awakeBusy || Date.now() - lastAwake < 30_000) return;
+        awakeBusy = true;
+        lastAwake = Date.now();
         try {
           device.lastFetched = Date.now();
           const awaken = await ShellyDevice.create(shelly, log, device.host);
@@ -985,6 +991,8 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
           log.debug(`Updated cache file for sleepy device ${hk}${device.id}${db} host ${zb}${device.host}${db}`);
         } catch (error) {
           log.debug(`Error saving device cache ${hk}${device.id}${db} host ${zb}${device.host}${db}: ${getErrorMessage(error)}`);
+        } finally {
+          awakeBusy = false;
         }
       }
     });
@@ -1298,8 +1306,11 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
         if (key.startsWith('flood:')) this.updateComponent(key, data[key] as ShellyData);
         if (key.startsWith('thermostat:')) this.updateComponent(key, data[key] as ShellyData);
 
-        if (key.startsWith('devicepower:') && !this.hasComponent(key)) this.addComponent(new ShellyComponent(this, key, 'Devicepower'));
-        if (key.startsWith('devicepower:')) this.updateComponent(key, data[key] as ShellyData);
+        // local change: the keys come from the peer - a device has a handful of devicepower components, not an open-ended set
+        if (/^devicepower:([0-9]|1[0-5])$/.test(key)) {
+          if (!this.hasComponent(key)) this.addComponent(new ShellyComponent(this, key, 'Devicepower'));
+          this.updateComponent(key, data[key] as ShellyData);
+        }
       }
       // Update state for active components with output
       for (const key in data) {
