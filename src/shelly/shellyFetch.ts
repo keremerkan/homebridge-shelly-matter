@@ -105,6 +105,8 @@ export async function shellyFetch(
     if (!response.ok) {
       // Try with authentication
       if (response.status === 401) {
+        // local change: the 401 and its scheme come from the peer - only configured hosts get the password
+        if (!shelly.isTrustedHost(host, true)) throw new Error('credentials withheld: host is not trusted');
         const authHeader = response.headers.get('www-authenticate');
         log.debug(`${GREY}authHeader: ${authHeader}${RESET}`);
         /* v8 ignore next if */

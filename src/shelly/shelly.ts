@@ -61,6 +61,22 @@ export class Shelly extends EventEmitter<ShellyEvents> {
   private _interfaceName: string | undefined;
   private _ipv4Address: string | undefined;
   private _ipv6Address: string | undefined;
+  /**
+   * Hosts that may receive the credentials (local change). Undefined keeps the
+   * upstream behavior of answering every 401 with them.
+   */
+  public trustedHosts: Set<string> | undefined;
+  private readonly untrustedWarned = new Set<string>();
+
+  /** Whether the credentials may be sent to this host (a cache file never needs them). */
+  isTrustedHost(host: string, warn = false): boolean {
+    if (this.trustedHosts === undefined || this.trustedHosts.has(host) || host.endsWith('.json')) return true;
+    if (warn && !this.untrustedWarned.has(host)) {
+      this.untrustedWarned.add(host);
+      this.log.warn(`Shelly at ${host} requires authentication, but the host is not in the settings - not sending the password. Add the host to the device in the settings, or enable trustMdnsHosts.`);
+    }
+    return false;
+  }
 
   /**
    * Creates a new instance of the Shelly class.

@@ -143,6 +143,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       logLevel: this.config.debug === true ? LogLevel.DEBUG : LogLevel.INFO,
     });
     this.shelly = new Shelly(this.shellyLog, (this.config.username as string) ?? 'admin', this.config.password as string | undefined);
+    // The password goes only to hosts from the settings; hosts that mDNS alone
+    // found get it with trustMdnsHosts.
+    if (this.config.trustMdnsHosts !== true) {
+      this.shelly.trustedHosts = new Set(deviceConfigs(this.config).flatMap((entry) => (typeof entry.host === 'string' ? [entry.host] : [])));
+    }
 
     // Shelly devices routinely close idle WebSockets and the client reconnects
     // transparently - connection cycling is routine noise, so the transport

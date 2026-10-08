@@ -895,7 +895,7 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
 
     // Start WebSocket client for gen 2+ devices if not in sleep mode
     if (device.gen >= 2 && !device.udp && !device.sleepMode) {
-      device.wsClient = new WsClient(device.id, host, 80, shelly.password);
+      device.wsClient = new WsClient(device.id, host, 80, shelly.isTrustedHost(host) ? shelly.password : undefined);
 
       // Start the WebSocket client for devices that are not a cache JSON file
       if (!host.endsWith('.json')) device.wsClient.start();
