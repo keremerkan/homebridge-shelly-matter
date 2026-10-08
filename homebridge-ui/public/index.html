@@ -31,7 +31,7 @@
     let view = { rows: new Map() };
     const UNTESTED_BADGE = ' <span class="badge badge-warning bg-warning text-dark">untested</span>';
 
-    const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const escapeAttr = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const typeLabel = (type) => (type === 'meter-total'
       ? 'Meter (total)'
       : type.charAt(0).toUpperCase() + type.slice(1));

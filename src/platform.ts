@@ -52,6 +52,12 @@ const ATTACH_SETTLE_MS = 1000;
 const REGISTER_DEADLINE_MS = 80_000;
 const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination'] as const;
 
+/** The device's RPC-over-UDP destination, or null when it has none (the value is peer-supplied: anything but a string counts as none). */
+function udpDestinationOf(device: ShellyDevice): string | null {
+  const destination = (device.getComponent('sys')?.getValue('rpc_udp') as { dst_addr?: unknown } | undefined)?.dst_addr;
+  return typeof destination === 'string' ? destination : null;
+}
+
 /** The first external IPv4 address of the given interface, or of the first interface that has one. */
 function localIpv4(interfaceName?: string): string | undefined {
   const all = networkInterfaces();
@@ -722,14 +728,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       id: device.id,
       host,
       gen: device.gen,
-      model: device.model,
-      name: device.name,
+      // Peer-supplied: only strings are persisted (the settings page renders them).
+      model: typeof device.model === 'string' ? device.model : undefined,
+      name: typeof device.name === 'string' ? device.name : undefined,
       channels: mapped.length,
       kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
       indexes: mapped.map(({ component }) => component.index),
       ...(device.sleepMode ? { sleeping: true } : {}),
       transport: device.gen === 1 ? 'coiot' : device.udp ? 'udp' : 'websocket',
-      ...(device.gen >= 2 ? { udpDestination: (device.getComponent('sys')?.getValue('rpc_udp') as { dst_addr?: string | null } | undefined)?.dst_addr ?? null } : {}),
+      ...(device.gen >= 2 ? { udpDestination: udpDestinationOf(device) } : {}),
     });
     if (this.isHidden(device.id, host)) {
       this.log.info(`Shelly ${device.id} is configured as hidden - not registering.`);
