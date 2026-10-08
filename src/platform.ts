@@ -210,7 +210,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // restart (#8).
     try {
       const parsed: unknown = JSON.parse(await fs.readFile(this.devicesFile, 'utf8'));
-      const known = (Array.isArray(parsed) ? parsed : []).filter((row): row is KnownDevice => row !== null && typeof row === 'object' && typeof (row as KnownDevice).id === 'string');
+      const known = (Array.isArray(parsed) ? parsed : []).filter((row): row is KnownDevice => row !== null && typeof row === 'object' && typeof (row as KnownDevice).id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test((row as KnownDevice).id));
       if (known.some((device) => device.gen === 1)) this.shelly.coapServer.start();
       for (const device of known) {
         // Seed the in-memory list so a save never drops devices that have
@@ -461,7 +461,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private async restoreSleepingDevice(host: string): Promise<boolean> {
     if (!this.shelly) return false;
     const known = this.knownByHost(host);
-    if (!known) return false;
+    if (!known || path.basename(known.id) !== known.id) return false;
     const file = path.join(this.dataPath, `${known.id}.json`);
     try {
       await fs.access(file);
