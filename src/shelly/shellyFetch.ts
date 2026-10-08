@@ -131,7 +131,7 @@ export async function shellyFetch(
           const auth = createDigestShellyAuth('admin', shelly.password ?? '', nonce, crypto.randomInt(0, 999999999), authParams.realm);
           options.body = getGen2BodyOptions('2.0', 10, 'Matterbridge', service, params, auth);
         }
-        log.debug(`${GREY}options: ${JSON.stringify(options)}${RESET}`);
+        log.debug(`${GREY}options: ${JSON.stringify(redactAuth(options))}${RESET}`);
         response = await fetch(url, options);
         log.debug(`${GREY}response ok: ${response.ok}${RESET}`);
         if (response.ok) {
@@ -157,4 +157,11 @@ export async function shellyFetch(
     clearTimeout(fetchTimeout);
     return null;
   }
+}
+
+/** local change: after a 401 the options carry the Authorization header (Basic = the password, base64-encoded) - keep it out of the log. */
+function redactAuth(options: RequestInit): RequestInit {
+  const headers = { ...(options.headers as Record<string, string>) };
+  if (headers.Authorization) headers.Authorization = '<redacted>';
+  return { ...options, headers };
 }
