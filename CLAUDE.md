@@ -186,6 +186,18 @@ device table. devices.json records per-channel `kinds` for the UI.
   scans as primary discovery (scanner's first query races its socket bind and
   re-queries only at 60s; responders rate-limit) — `/devices` from this file is
   primary, `/scan` (with 1s re-query loop) is fallback only.
+- **Forget** (settings table button): the UI server must NOT write
+  `devices.json` (the platform rewrites it from memory) or touch the Matter
+  cache, so `/forget` appends the id to `<storage>/shelly-matter/forget.json`
+  and `applyForgetRequests` (platform startup, before the cache loop) applies
+  it pre-online: cached parts unregistered like `hidden`, generation =
+  max(known, cached)+1 (a re-add must not land on the deleted identity), row
+  kept as a `forgotten: true` tombstone for that floor (any later sighting
+  drops the flag via `rememberDevice`; tombstones keep the removal repeatable
+  after a crash), sleeping payload `<id>.json` deleted. `/devices` hides
+  forgotten and pending ids; `/scan` cancels a pending forget for devices
+  that answer; `applyView` takes `forgotten: [{id, host}]` to drop their
+  config entries. A live device just comes back (Hide is for those).
 - **Sleeping devices** (`restoreSleepingDevice`): a CoIoT report from a host
   with no device object is DROPPED by the vendored layer, and battery sensors
   are unreachable at startup - so the platform saves their payloads

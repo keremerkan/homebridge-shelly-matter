@@ -7,7 +7,7 @@ import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, P
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
 import { clampOnRelayEnabled, configForDevice, deviceConfigs, deviceHidden, isSplittableKind, METER_TOTAL_KIND, meterConfig } from './deviceConfig.js';
-import { DATA_DIR, DEVICES_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
+import { DATA_DIR, DEVICES_FILE, FORGET_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
 import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
 import { Shelly } from './shelly/shelly.js';
@@ -32,6 +32,8 @@ interface KnownDevice {
   generation?: number;
   /** A structural change was detected on a live, registered identity; the rotation applying it runs pre-online at the next startup. */
   pendingRotation?: boolean;
+  /** Forgotten via the settings UI: no longer listed, its accessories are dropped pre-online. Kept as a tombstone for `generation`; any later sighting clears it (rememberDevice rebuilds the row without it). */
+  forgotten?: boolean;
   /** Battery device that sleeps between reports (restored from its saved payload when unreachable at startup). */
   sleeping?: boolean;
   /** How the device reports state changes to the plugin (recorded at connect time; shown in the settings UI). */
@@ -193,6 +195,44 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.registeredSignatures.delete(accessory.UUID);
   }
 
+  /**
+   * Applies the settings UI's "Forget" requests (`forget.json`) and returns
+   * every forgotten id: the requested ones plus tombstones from an earlier
+   * start whose cache removal may not have completed. A requested device
+   * moves to a fresh identity generation (a re-add must not land on the
+   * identity just deleted), keeps its devices.json row as a tombstone for
+   * that generation, and loses its saved sleeping payload.
+   */
+  private async applyForgetRequests(cachedByDevice: Map<string, MatterAccessory[]>): Promise<Set<string>> {
+    const forgetFile = path.join(this.dataPath, FORGET_FILE);
+    let requested: string[] = [];
+    try {
+      const parsed: unknown = JSON.parse(await fs.readFile(forgetFile, 'utf8'));
+      requested = (Array.isArray(parsed) ? parsed : []).filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id));
+    } catch {
+      // No (or unreadable) request file.
+    }
+    for (const id of requested) {
+      const known = this.knownDevices.get(id);
+      const generation = Math.max(known?.generation ?? 0, cachedGenerationOf(cachedByDevice.get(id) ?? [])) + 1;
+      this.generationByDevice.set(id, generation);
+      if (known) this.knownDevices.set(id, { ...known, forgotten: true, generation });
+      await fs.rm(path.join(this.dataPath, `${id}.json`), { force: true });
+      this.log.info(`Shelly ${id} forgotten - removing it from the bridge before it goes online.`);
+    }
+    if (requested.length > 0) {
+      // Persist the tombstones BEFORE dropping the request, so a crash repeats the forget instead of losing it.
+      try {
+        await fs.writeFile(`${this.devicesFile}.tmp`, this.serializeKnownDevices());
+        await fs.rename(`${this.devicesFile}.tmp`, this.devicesFile);
+        await fs.rm(forgetFile, { force: true });
+      } catch (error) {
+        this.log.error(`Failed to record forgotten devices: ${getErrorMessage(error)}`);
+      }
+    }
+    return new Set([...requested, ...[...this.knownDevices.values()].filter((known) => known.forgotten === true).map((known) => known.id)]);
+  }
+
   /** The host string config entries are matched against for a device (its host-only entry's host when added from one). */
   configHost(device: { id: string; host: string; port: number }): string {
     return this.configuredHostById.get(device.id) ?? addressOf(device);
@@ -263,10 +303,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       list.push(cached);
       cachedByDevice.set(deviceId, list);
     }
+    const forgotten = await this.applyForgetRequests(cachedByDevice);
     for (const [deviceId, cachedList] of cachedByDevice) {
       const known = this.knownDevices.get(deviceId);
       const host = typeof known?.host === 'string' ? known.host : undefined;
-      if (this.isHidden(deviceId, host)) {
+      if (forgotten.has(deviceId) || this.isHidden(deviceId, host)) {
         // Remove hidden devices from bridge and cache.
         for (const cached of cachedList) {
           this.enqueue(`Failed to unregister hidden Shelly ${deviceId}`, () => this.unregisterAccessory(cached));

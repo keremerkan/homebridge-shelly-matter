@@ -87,15 +87,20 @@ export function deviceView({ config, devices } = {}) {
  * powerMetering carry-over) lives here with the rest of the config rules;
  * the browser page only harvests neutral DOM values.
  */
-export function applyView({ config, devices, selections } = {}) {
+export function applyView({ config, devices, selections, forgotten } = {}) {
   const platformConfig = platformConfigOf(config);
   const list = listedDevices(devices);
   const chosen = new Map((Array.isArray(selections) ? selections : []).map((sel) => [sel.id, sel]));
   // Preserve entries for devices not in this listing.
   const listedIds = new Set(list.map((device) => device.id));
   const listedHosts = new Set(list.map((device) => device.host));
+  // Forgotten devices are not listed any more, but their entries must go too.
+  const forgottenList = (Array.isArray(forgotten) ? forgotten : []).filter((device) => typeof device?.id === 'string');
+  const forgottenIds = new Set(forgottenList.map((device) => device.id));
+  const forgottenHosts = new Set(forgottenList.map((device) => device.host).filter(Boolean));
   const rebuilt = deviceConfigs(platformConfig).filter((e) => {
-    if (e.device && listedIds.has(e.device)) return false;
+    if (e.device && (listedIds.has(e.device) || forgottenIds.has(e.device))) return false;
+    if (!e.device && e.host && forgottenHosts.has(e.host)) return false;
     if (!e.device && e.host && listedHosts.has(e.host)) return false;
     return true;
   });
