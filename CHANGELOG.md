@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2] - 2026-09-17
+## [0.10.0] - 2026-10-08
 
 ### Changed
 
@@ -14,16 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Color lights** ([#16](https://github.com/keremerkan/homebridge-shelly-matter/issues/16)): the Plus RGBW PM in RGB or RGBW mode (and the Pro RGBWW PM's RGB channel) is exposed as a Matter color light with brightness, color and white temperature, plus power metering. In RGBW mode whites use the white channel, tinted with the color channels for warmer temperatures, and pale colors move their white part to the white channel too; in RGB mode whites are mixed from the color channels.
+- **Color lights** ([#16](https://github.com/keremerkan/homebridge-shelly-matter/issues/16)): the Plus RGBW PM in RGB or RGBW mode (and the Pro RGBWW PM's RGB channel) is exposed as a Matter color light with brightness, color and white temperature, plus power metering. In RGBW mode whites use the white channel, tinted with the color channels for warmer temperatures, and pale colors move their white part to the white channel too; in RGB mode whites are mixed from the color channels. A white chosen in Home stays a white temperature (also after a restart), and color or white changes made in the Shelly app show up in Home (with thanks to @tomo2403, #17).
 - **Buttons** ([#15](https://github.com/keremerkan/homebridge-shelly-matter/issues/15)): input-only devices (i3, Plus i4, i4 Gen3/Gen4, Button1) expose their inputs in button (momentary) mode as Matter buttons, usable in Apple Home automations with single, double and long press. Triple presses are not passed on, since Apple Home has no trigger for them. Inputs in toggle mode and the inputs of devices with an output (relays, covers, lights, including RGB/RGBW lights not mapped yet) are not mapped. A Plus i4 that already showed add-on sensors is re-created once.
 - **`clampOnRelay`** (EM devices with a relay; settings table: "first clamp on the relay"): shows the first clamp's power and energy on the relay's accessory, so the relay tile shows the wattage and still switches. Use it when that clamp measures the circuit the relay switches. Off by default; changing it re-creates the device's accessories.
 - **Meter channels as virtual outlets** ([#13](https://github.com/keremerkan/homebridge-shelly-matter/issues/13)): a meter channel (3EM phase, EM clamp, PM Mini) can be shown as an outlet, so Apple Home displays its live wattage on the tile (it shows tile wattage only for outlet types). Choose "Outlet" in the meter row's type dropdown, or set `accessoryType: "outlet"` on the channel (or on the device when it has no relay channels). The switch on such a tile does nothing. Changing it re-creates the accessory once.
 
 ### Fixed
 
-- Color lights (RGBW): a color temperature chosen in Home no longer flips to a color when the device reports `white` before `rgb`, a white level changed in the Shelly app is no longer ignored after a color temperature was set, and a warm white is shown as a color temperature again after a restart instead of pure white.
+- Add-on probes on a device with a single output (a relay or a light) are now their own "Sensors" accessory, as on split devices ([#16](https://github.com/keremerkan/homebridge-shelly-matter/issues/16)). Grouped with the output, Apple Home showed the device as a thermometer and its output could only be switched from inside the accessory. Affected devices are re-created once.
 - Settings table: the RPC-over-UDP hint no longer claims a device's destination is "not this host" when it may only be waiting for a restart or have a different listen port; it now says what to check.
 - Settings form: the device's "Accessory type" help text started with a stray ". " and lacked its first sentence.
+- Hardening against misbehaving hosts on the local network (with thanks to @tomo2403, #18): a device id that is not a plain file name is rejected before it names a cache file, response bodies are size- and time-limited, `Shelly.GetComponents` paging stops when a page makes no progress, UDP reports cannot create unlimited components or refreshes, the Gen 1 password no longer appears in the debug log, and a device reporting a non-string name or model no longer empties the settings table.
 - Settings table: rows are labelled by what they are (`ch N` for relays, `meter N` for meters, `total`/`phase A–C` on three-phase meters, the probe kind for add-on sensors) instead of by table position, so a label no longer changes meaning when the row set changes, e.g. when the first clamp moves onto the relay ([#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7)).
 
 ## [0.9.1] - 2026-09-12

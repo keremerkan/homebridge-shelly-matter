@@ -740,7 +740,9 @@ function composeAccessories(
   // Sensor and meter parts never split into separate accessories (one
   // physical unit / measurement channels of one meter). A multi-channel
   // device with meters stays one grouped accessory; without meters its
-  // channels split, and any add-on sensors form one accessory of their own.
+  // channels split. Add-on sensors on a device with outputs always form one
+  // accessory of their own: grouped with an output, Apple Home makes the
+  // sensor the tile and the output loses its tap-to-toggle (#16).
   const base = { deviceId, deviceName: displayName, generation, ...(actuatorIndexes.length > 0 ? { actuatorIndexes } : {}) };
   if (splitChannelsEnabled(entry) && actuators.length > 1 && !typed.some(({ kind }) => kind === 'meter')) {
     const split = actuators.map((one) => {
@@ -751,6 +753,13 @@ function composeAccessories(
     });
     if (sensors.length > 0) split.push(composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, parentClusters, channelName));
     return split;
+  }
+  if (actuators.length > 0 && sensors.length > 0) {
+    const outputs = typed.filter(({ kind }) => !isSensorKind(kind));
+    return [
+      composeOne(platform, base, outputs, groupedSeed(outputs), displayName, template, undefined, channelName),
+      composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, parentClusters, channelName),
+    ];
   }
   return [composeOne(platform, base, typed, groupedSeed(typed), displayName, template, parentClusters, channelName)];
 }
