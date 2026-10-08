@@ -42,6 +42,11 @@ interface KnownDevice {
 }
 
 const HOST_RETRY_MS = 60_000;
+/** Bounds for what unauthenticated mDNS announcements can make the plugin track: retry delay ceiling, retry chains, in-flight creates, never-connected rows in devices.json. */
+const MAX_HOST_RETRY_MS = 30 * 60_000;
+const MAX_RETRY_CHAINS = 64;
+const MAX_CONCURRENT_CREATES = 32;
+const MAX_SIGHTINGS = 256;
 const ATTACH_SETTLE_MS = 1000;
 /** How long a registration keeps waiting for the Matter server to come up. */
 const REGISTER_DEADLINE_MS = 80_000;
@@ -64,6 +69,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly shelly?: Shelly;
   private readonly shellyLog!: AnsiLogger;
   private readonly hostRetryTimers = new Map<string, NodeJS.Timeout>();
+  /** Failed attempts so far per mDNS-found host (the retry delay backs off; configured hosts keep the fixed cadence). */
+  private readonly retryAttempts = new Map<string, number>();
   private registrationQueue: Promise<void> = Promise.resolve();
   private readonly pendingUpdateAttach: { device: ShellyDevice; accessory: MatterAccessory }[] = [];
   private attachTimer?: NodeJS.Timeout;
@@ -475,6 +482,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     // retry cadence - every attempt is a full fetch sequence with timeouts.
     if (this.hostRetryTimers.has(host)) return;
     if (!retry && Date.now() - (this.lastCreateAttempt.get(host) ?? 0) < HOST_RETRY_MS) return;
+    // A host from the settings is always tried; hosts that only an mDNS
+    // announcement named are bounded (anyone on the LAN can announce any number).
+    const configured = deviceConfigs(this.config).some((entry) => entry.host === host);
+    if (!configured && this.creatingHosts.size >= MAX_CONCURRENT_CREATES) return;
     this.lastCreateAttempt.set(host, Date.now());
     this.creatingHosts.add(host);
     const device = await ShellyDevice.create(this.shelly, this.shellyLog, host)
@@ -487,17 +498,28 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       if (await this.restoreSleepingDevice(host)) return;
       const hint = this.knownByHost(host)?.sleeping ? ' (a sleeping battery device - it is set up when it next reports)' : '';
       if (this.unreachableWarned.has(host)) this.log.debug(`Could not reach Shelly at ${host}${hint}.`);
-      else this.log.warn(`Could not reach Shelly at ${host}${hint}${retry ? `, retrying every ${HOST_RETRY_MS / 1000}s` : ''}.`);
+      else this.log.warn(`Could not reach Shelly at ${host}${hint}${retry ? `, retrying every ${HOST_RETRY_MS / 1000}s${configured ? '' : ' (backing off)'}` : ''}.`);
       this.unreachableWarned.add(host);
       if (!retry) return;
+      const attempts = this.retryAttempts.get(host) ?? 0;
+      if (!configured && this.hostRetryTimers.size >= MAX_RETRY_CHAINS) {
+        // The host is tried again when it is next announced.
+        this.retryAttempts.delete(host);
+        this.unreachableWarned.delete(host);
+        this.lastCreateAttempt.delete(host);
+        return;
+      }
+      if (!configured) this.retryAttempts.set(host, attempts + 1);
+      const delay = configured ? HOST_RETRY_MS : Math.min(HOST_RETRY_MS * 2 ** attempts, MAX_HOST_RETRY_MS);
       const timer = setTimeout(() => {
         this.hostRetryTimers.delete(host);
         void this.addHost(host, hostOnlyEntry);
-      }, HOST_RETRY_MS);
+      }, delay);
       this.hostRetryTimers.set(host, timer);
       return;
     }
     this.unreachableWarned.delete(host);
+    this.retryAttempts.delete(host);
     if (hostOnlyEntry) this.configuredHostById.set(device.id, host);
     // The same device reached through two host strings (config hostname vs
     // mDNS IP) - keep the first; the loser's transport must not linger.
@@ -623,6 +645,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       else Object.assign(merged, { [key]: value });
     }
     if (existing && deepEqual(existing, merged)) return;
+    // A bare sighting (never connected) of a new id: the list is bounded, the
+    // oldest bare sighting makes room. Connected devices are always recorded.
+    if (!existing && merged.channels === null && this.knownDevices.size >= MAX_SIGHTINGS) {
+      const oldest = [...this.knownDevices.values()].find((known) => known.channels === null);
+      if (!oldest) return;
+      this.knownDevices.delete(oldest.id);
+    }
     this.knownDevices.set(entry.id, merged);
     this.persistKnownDevices();
   }
