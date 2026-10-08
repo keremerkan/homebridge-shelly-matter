@@ -103,9 +103,11 @@ export function applyView({ config, devices, selections } = {}) {
   for (const device of list) {
     const prior = configForDevice(platformConfig, device.id, device.host);
     const sel = chosen.get(device.id);
-    // Always record the current IP so the plugin keeps working if mDNS
-    // discovery is disabled later; with mDNS on it is harmlessly redundant.
-    const host = device.host || prior?.host;
+    // Always record an IP so the plugin keeps working if mDNS discovery is
+    // disabled later; with mDNS on it is harmlessly redundant. A host that is
+    // already configured stays: the sighted one is an unauthenticated mDNS
+    // answer and must not silently replace it.
+    const host = prior?.host || device.host;
     const entry = { device: device.id, ...(host && { host }) };
     if (sel?.name) entry.name = sel.name;
     // Write the type explicitly (even when it matches the default) so the
