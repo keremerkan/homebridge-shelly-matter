@@ -565,6 +565,11 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       }
       device.model = shellyPayload.type as string;
       device.id = normalizeId((settingsPayload.device as ShellyData).hostname as string).id;
+      // local change: the id comes from the peer and names files in the data directory
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(device.id)) {
+        log.error(`Rejecting device at host ${zb}${host}${db}: invalid device id`);
+        return undefined;
+      }
       device.firmware = (shellyPayload.fw as string).split('/')[1];
       device.auth = shellyPayload.auth as boolean;
       device.name = settingsPayload.name ? (settingsPayload.name as string) : device.id;
@@ -676,6 +681,11 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
       if ((statusPayload.sys as ShellyData).wakeup_period) device.sleepMode = true;
       device.model = shellyPayload.model as string;
       device.id = normalizeId(shellyPayload.id as string).id;
+      // local change: the id comes from the peer and names files in the data directory
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(device.id)) {
+        log.error(`Rejecting device at host ${zb}${host}${db}: invalid device id`);
+        return undefined;
+      }
       device.firmware = (shellyPayload.fw_id as string).split('/')[1];
       device.auth = shellyPayload.auth_en as boolean;
       device.gen = shellyPayload.gen;
@@ -1495,6 +1505,11 @@ export class ShellyDevice extends EventEmitter<ShellyDeviceEvents> {
    */
   async saveDevicePayloads(dataPath: string): Promise<boolean> {
     this.log.debug(`Saving device payloads for ${hk}${this.id}${db} host ${zb}${this.host}${db}`);
+    // local change: never write outside the data directory
+    if (path.basename(this.id) !== this.id) {
+      this.log.error(`Not saving device payloads: invalid device id`);
+      return false;
+    }
     if (this.shellyPayload && this.statusPayload && this.settingsPayload) {
       try {
         await fs.mkdir(dataPath, { recursive: true });

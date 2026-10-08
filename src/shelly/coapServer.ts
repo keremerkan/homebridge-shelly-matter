@@ -814,6 +814,8 @@ export class CoapServer extends EventEmitter<CoapServerEvents> {
    * @returns {Promise<void>} A promise that resolves when the response is successfully saved, or rejects with an error.
    */
   private async saveResponse(fileName: string, payload: object): Promise<void> {
+    // local change: the name derives from device-supplied values and names a file in the data directory
+    if (path.basename(fileName) !== fileName) return;
     const responseFile = path.join(this._dataPath, fileName);
     try {
       await fs.writeFile(responseFile, JSON.stringify(payload, null, 2), 'utf8');

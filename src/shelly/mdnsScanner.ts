@@ -386,6 +386,8 @@ export class MdnsScanner extends EventEmitter<MdnsScannerEvents> {
    * @returns {Promise<void>} A promise that resolves when the response is successfully saved, or rejects with an error.
    */
   async saveResponse(shellyId: string, response: ResponsePacket): Promise<void> {
+    // local change: the name comes from the network and names a file in the data directory
+    if (path.basename(shellyId) !== shellyId) return;
     const responseFile = path.join(this._dataPath, `${shellyId}.mdns.json`);
     try {
       await fs.mkdir(this._dataPath, { recursive: true });
