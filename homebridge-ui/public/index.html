@@ -74,8 +74,8 @@
       });
     }
 
-    async function applySelections() {
-      const rebuilt = await homebridge.request('/apply-view', { config, devices, selections: harvestSelections() });
+    async function applySelections(forgotten) {
+      const rebuilt = await homebridge.request('/apply-view', { config, devices, selections: harvestSelections(), forgotten });
       if (rebuilt.length > 0) config.devices = rebuilt;
       else delete config.devices;
 
@@ -170,6 +170,7 @@
           <tr>
             <td rowspan="${span}" style="vertical-align: middle;">
               ${label}<br><span class="text-muted" style="font-size: 0.8rem;">${detail}</span>${transport ? `<br><span class="text-muted" style="font-size: 0.8rem;">${transport}</span>` : ''}
+              <br><button type="button" class="btn btn-link btn-sm p-0 text-danger" style="font-size: 0.8rem;" data-forget="${escapeAttr(device.id)}" title="Remove this device from the table, the configuration and the bridge (for devices that are gone)">Forget</button>
             </td>
             <td>${multi ? 'device' : ''}</td>
             <td>${nameInputHtml(row)}</td>
@@ -190,11 +191,39 @@
         <div class="text-muted" style="font-size: 0.8rem; margin: 0.25rem 0 0.75rem;">
           <div>&#9432; <strong>Split</strong> (multi-channel devices): ticked, each channel is its own accessory and can be placed in its own room; unticked, the device is one accessory with a control per channel.</div>
           <div>&#9432; <strong>Hide</strong>: the device or channel is not exposed at all.</div>
+          <div>&#9432; <strong>Forget</strong>: for devices that are gone - removes the row, the configuration entry and the bridge accessory after Save and restart. A device still on the network is found again.</div>
           <div>&#9432; Split, type and hide changes re-create the affected accessories with a fresh identity after the restart, so they land in the bridge's default room once and need to be moved back.</div>
         </div>`;
+      for (const el of document.querySelectorAll('button[data-forget]')) {
+        el.addEventListener('click', () => forgetDevice(el.dataset.forget, el).catch((e) => homebridge.toast.error(e.message)));
+      }
       for (const el of document.querySelectorAll('select[data-entry], input[data-name-entry], input[data-channel-name], input[data-hide], input[data-split], input[data-vibration], input[data-clamp], select[data-gas]')) {
         el.addEventListener('change', () => applySelections().catch((e) => homebridge.toast.error(e.message)));
       }
+    }
+
+    /**
+     * Forget: drop the device from the table and config now; the platform removes its accessories at the next startup.
+     * The page is sandboxed (no confirm()), so the button confirms itself: first click arms it, second click forgets.
+     */
+    async function forgetDevice(id, button) {
+      const device = devices.find((d) => d.id === id);
+      if (!device) return;
+      if (button.dataset.armed !== 'true') {
+        button.dataset.armed = 'true';
+        button.textContent = 'Really forget? Click again';
+        button.title = 'The device is removed from this table, the configuration and the bridge after Save and a restart. A device still on the network is found again - use Hide for those.';
+        setTimeout(() => {
+          button.dataset.armed = '';
+          button.textContent = 'Forget';
+        }, 5000);
+        return;
+      }
+      await homebridge.request('/forget', { id });
+      devices = devices.filter((d) => d.id !== id);
+      await applySelections([{ id, host: device.host }]);
+      render();
+      homebridge.toast.success(`${device.name || id} will be forgotten - press Save, then restart the child bridge.`);
     }
 
     const status = document.getElementById('scan-status');

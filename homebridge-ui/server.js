@@ -1,15 +1,16 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { HomebridgePluginUiServer } from '@homebridge/plugin-ui-utils';
 
-import { DATA_DIR, DEVICES_FILE, isShellyDiscovery, PLATFORM_NAME } from '../dist/settings.js';
+import { DATA_DIR, DEVICES_FILE, FORGET_FILE, isShellyDiscovery, PLATFORM_NAME } from '../dist/settings.js';
 import { MdnsScanner } from '../dist/shelly/mdnsScanner.js';
 import { applyView, deviceView } from './view.js';
 
 const SCAN_DURATION_MS = 5000;
 const RPC_TIMEOUT_MS = 2500;
+const DEVICE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // Matter vendor ids seen commissioning a bridge, mapped to friendly names.
 // Apple enrolls two fabrics per home: the home-labelled AppleHome fabric and
@@ -28,6 +29,7 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     super();
     this.onRequest('/devices', () => this.knownDevices());
     this.onRequest('/scan', () => this.scan());
+    this.onRequest('/forget', ({ id } = {}) => this.forget(id));
     this.onRequest('/fabrics', () => this.fabrics());
     this.onRequest('/device-view', (payload) => deviceView(payload));
     this.onRequest('/apply-view', (payload) => applyView(payload));
@@ -81,15 +83,44 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     return undefined;
   }
 
-  /** Devices the running platform has seen, persisted to devices.json. */
+  /** Devices the running platform has seen, persisted to devices.json - minus the forgotten ones (tombstones and requests not applied yet). */
   async knownDevices() {
     try {
       const file = join(this.homebridgeStoragePath, DATA_DIR, DEVICES_FILE);
       const devices = JSON.parse(await readFile(file, 'utf8'));
-      return Array.isArray(devices) ? devices : [];
+      const pending = new Set(await this.forgetRequests());
+      return (Array.isArray(devices) ? devices : []).filter((device) => device?.forgotten !== true && !pending.has(device?.id));
     } catch {
       return [];
     }
+  }
+
+  /** Ids waiting in forget.json for the platform's next startup. */
+  async forgetRequests() {
+    try {
+      const ids = JSON.parse(await readFile(join(this.homebridgeStoragePath, DATA_DIR, FORGET_FILE), 'utf8'));
+      return (Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && DEVICE_ID.test(id));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Asks the platform to drop a device at its next startup (accessories,
+   * saved state, table row). Only the platform may touch devices.json and the
+   * Matter cache - a rewrite from here would be overwritten by its in-memory
+   * list - so the request travels in a file of its own.
+   */
+  async forget(id) {
+    if (typeof id !== 'string' || !DEVICE_ID.test(id)) throw new Error('Invalid device id');
+    return this.writeForgetRequests([...new Set([...(await this.forgetRequests()), id])]);
+  }
+
+  async writeForgetRequests(ids) {
+    const file = join(this.homebridgeStoragePath, DATA_DIR, FORGET_FILE);
+    await writeFile(`${file}.tmp`, JSON.stringify(ids));
+    await rename(`${file}.tmp`, file);
+    return ids;
   }
 
   /**
@@ -99,10 +130,12 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
    */
   async scan() {
     const found = new Map();
+    const seen = new Set();
     for (const device of await this.knownDevices()) found.set(device.id, device);
     const scanner = new MdnsScanner();
     scanner.on('discovered', (device) => {
       if (!isShellyDiscovery(device)) return; // same filter as the platform
+      seen.add(device.id);
       found.set(device.id, { ...found.get(device.id), ...device });
     });
     scanner.start();
@@ -112,6 +145,10 @@ class ShellyMatterUiServer extends HomebridgePluginUiServer {
     await sleep(SCAN_DURATION_MS);
     clearInterval(requery);
     scanner.stop();
+
+    // A device that answered is on the network and comes back anyway: a pending forget would only rotate it for nothing.
+    const pending = await this.forgetRequests();
+    if (pending.some((id) => seen.has(id))) await this.writeForgetRequests(pending.filter((id) => !seen.has(id)));
 
     const devices = [...found.values()];
     await Promise.all(

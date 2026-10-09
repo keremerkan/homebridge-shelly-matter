@@ -11,6 +11,8 @@ export const MIN_HOMEBRIDGE = '2.3.0';
 /** Where the platform persists device sightings for the settings UI (under the Homebridge storage path). */
 export const DATA_DIR = 'shelly-matter';
 export const DEVICES_FILE = 'devices.json';
+/** Device ids the settings UI asked to forget; the platform applies them (pre-online) at its next startup and deletes the file. */
+export const FORGET_FILE = 'forget.json';
 
 /**
  * A real Shelly device id: model slug + a MAC fragment of at least 6 hex
