@@ -149,11 +149,11 @@ export const clampOnRelayEnabled = (entry: ShellyDeviceConfig | undefined): bool
 export const vibrationAsMotionEnabled = (entry: ShellyDeviceConfig | undefined): boolean => entry?.vibrationAsMotion === true;
 
 /**
- * Default presentation: plugs are outlets, wired relay devices usually drive
- * lights. Plug-in devices (Plug S, Plug US/UK/IT, Gen 1 Plug...) all carry
- * 'plug' in the device id.
+ * Default presentation: plugs and power strips are outlets, wired relay
+ * devices usually drive lights. Plug-in devices (Plug S, Plug US/UK/IT, Gen 1
+ * Plug...) all carry 'plug' in the device id, power strips 'pstrip'.
  */
-export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') || deviceId.startsWith('shellyem') ? 'outlet' : 'light');
+export const defaultAccessoryType = (deviceId: string): AccessoryType => (deviceId.includes('plug') || deviceId.includes('pstrip') || deviceId.startsWith('shellyem') ? 'outlet' : 'light');
 
 /**
  * Splitting multi-channel devices into separate accessories is the DEFAULT

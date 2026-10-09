@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Power strips (Power Strip 4 Gen4) default to outlets like plugs, so their sockets show the wattage on the tile ([#21](https://github.com/keremerkan/homebridge-shelly-matter/issues/21)). Strips whose type was never chosen are re-created once as outlets; set `accessoryType` to keep another type.
 - **Energy meter clamps are their own channels** ([#14](https://github.com/keremerkan/homebridge-shelly-matter/issues/14)): on EM devices with a relay (Pro EM-50, EM Gen4, Gen 1 EM / 3EM), the first clamp was merged onto the relay's accessory, so the relay showed that clamp's power although the relay (a contactor output) is not what the clamp measures. Every clamp is now its own meter channel (an electrical sensor, or a virtual outlet with tile wattage) that can be named, hidden and typed, and the relay is a plain relay. These devices' accessories are re-created once, on the first restart after updating; reassign their rooms afterwards. To keep the first clamp's wattage on the relay's tile, turn on the new `clampOnRelay` option (below).
 - Meter channels are addressed with `meter` in a device's `channels` (`{ "meter": 0, "accessoryType": "outlet" }`), since the relay and the first clamp are both 0 on EM devices. Existing `channel` entries for meters keep working on devices without a relay (3EM, PM Mini); saving the settings table rewrites them.
 

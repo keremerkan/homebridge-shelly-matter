@@ -69,7 +69,7 @@ entries still reach a meter unless an actuator (hidden ones included) owns the
 index; the actuator indexes ride in the accessory context (`actuatorIndexes`)
 because a cache rebuild cannot see a hidden relay.
 Resolution: channel setting → device setting → kind default (id contains
-'plug' → outlet, else light). Entries record deviations, EXCEPT `host` which
+'plug' or 'pstrip' → outlet, else light). Entries record deviations, EXCEPT `host` which
 the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
 `accessoryType` applies to switch components only — every other kind is fixed
