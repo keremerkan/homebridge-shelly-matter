@@ -111,6 +111,14 @@ one confirmation moves it to tested.
 - **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
   tested Gen 1 devices, but no hardware confirmation yet.
 - **Smoke sensors** (Plus Smoke, Shelly Smoke Gen 1): smoke alarm and battery level.
+- **BLU devices** ([#19](https://github.com/keremerkan/homebridge-shelly-matter/issues/19)):
+  devices paired to a Shelly BLU gateway (BLU Gateway Gen3, or a Gen 2+ device acting
+  as one) appear as accessories of their own, each with its battery level: BLU TRV as a
+  heating thermostat, BLU Motion as a motion + light sensor, BLU H&T as temperature +
+  humidity, BLU Door/Window as contact + light level. They are named after their name in
+  the Shelly app (or model + last address digits) and can be renamed or hidden in the
+  settings like any device. The BLU TRV has no off: Off in Home sets its frost-protection
+  minimum (4 °C), and Heat restores the setpoint it had.
 
 
 ### Gen 1 devices and CoIoT
@@ -132,9 +140,9 @@ Matter mapping. [Open an issue](https://github.com/keremerkan/homebridge-shelly-
 if you own one and want it prioritized — we can usually provide a beta build to test:
 
 - Gen 1 color lights (RGBW2 in color mode, Color Bulb) and CCT (tunable white) channels
-- Sensors: Motion, BLU sensors via a Shelly BLE gateway — including battery level
+- Sensors: Motion (Gen 1 Shelly Motion), BLU buttons
 - Inputs in toggle mode, and the wall inputs of relays
-- TRV / thermostats
+- TRV / thermostats (Gen 1 Shelly TRV, Gen 2+ thermostat components)
 
 Not mappable to Matter as what they are: gas detectors (no Matter device type; exposed as a smoke or CO alarm with `gasAlarm`), tilt.
 
@@ -149,6 +157,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly 1 | `shelly1` | light / outlet / switch | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
 | Shelly Plus 1 | `shellyplus1` | light / outlet / switch | ✅ |
 | Shelly Plus Plug S | `shellyplusplugs` | outlet + power/energy | ✅ |
+| Shelly Plug S MTR Gen3, Power Strip 4 Gen4 | `shellyplugsg3`, `shellypstripg4` | light / outlet / switch + power/energy (the strip: 4 channels) | ✅ [#21](https://github.com/keremerkan/homebridge-shelly-matter/issues/21) |
 | Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
 | Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
 | Shelly Dimmer 2 | `shellydimmer2` | dimmable light + power/energy | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
@@ -173,8 +182,9 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly EM Gen4 | `shellyemg4` | relay as outlet, plus each clamp as its own meter channel: electrical sensor, or virtual outlet with tile wattage (`{ "meter": 0, "accessoryType": "outlet" }`); `clampOnRelay` shows the first clamp on the relay tile instead | ✅ [#7](https://github.com/keremerkan/homebridge-shelly-matter/issues/7) |
 | Shelly Pro 3EM / 3EM-63 Gen3 | `shellypro3em`, `shelly3em63g3` | phase A/B/C electrical sensor endpoints, or virtual outlets with tile wattage (`accessoryType: "outlet"` per phase) (the total channel is hidden by default - the phases already sum to it, and exposing both double-counts in Apple Home's Energy tab; `{ "meter": 0, "hidden": false }` opts it in) | ✅ [#3](https://github.com/keremerkan/homebridge-shelly-matter/issues/3) |
 | Other energy meters (Gen 1 EM / 3EM, Pro EM-50, PM Mini) | `shellyem`, `shellyem3`, `shellyproem50`, `shellypmmini` … | each clamp/channel as its own meter channel: electrical sensor, or virtual outlet with tile wattage; the relay, where one exists, is exposed on its own as an outlet (it drives a contactor, the clamps measure independently; `clampOnRelay` shows the first clamp on it); Apple shows no tile for an electrical sensor | 🟡 [#14](https://github.com/keremerkan/homebridge-shelly-matter/issues/14) |
-| TRV / thermostats | `shellytrv` … | thermostat | ⏳ |
-| BLU devices | via a Shelly BLE gateway | depends on device | ⏳ |
+| TRV / thermostats (Gen 1) | `shellytrv` … | thermostat | ⏳ |
+| BLU TRV, BLU Motion, BLU H&T, BLU Door/Window | `shellyblu-<address>`, via a Shelly BLU gateway | thermostat / motion + light / temperature + humidity / contact + light, each with battery | 🧪 [#19](https://github.com/keremerkan/homebridge-shelly-matter/issues/19) |
+| BLU buttons and remotes | via a Shelly BLU gateway | buttons | ⏳ |
 | Shelly Wall Display | `shellywalldisplay` | — (it is a controller, not an accessory) | ❌ |
 
 Devices without supported components are discovered but skipped with a log message.

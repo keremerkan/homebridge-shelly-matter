@@ -5,6 +5,7 @@ type MatterAccessoryPart = NonNullable<MatterAccessory['parts']>[number];
 
 import { ADDON_INDEX_MIN, type AccessoryType, channelConfig, channelHidden, clampOnRelayEnabled, type ComponentKind, configForDevice, GAS_ALARM_MODES, type GasAlarmMode, gasAlarmMode, isSensorKind, isSplittableKind, METER_PHASES, meterConfig, powerMeteringEnabled, resolveAccessoryType, resolveMeterType, type SensorKind, splitChannelsEnabled, vibrationAsMotionEnabled } from './deviceConfig.js';
 import type { ShellyMatterPlatform } from './platform.js';
+import { type BluDevice, TRV_MAX_C, TRV_MIN_C } from './blu.js';
 import { hueSatToRgb, MIREDS_MAX, MIREDS_MIN, miredsFromRgbw, miredsToRgb, miredsToRgbw, type Rgb, rgbToHueSat, rgbToRgbw, rgbToXy, rgbwToRgb, xyToRgb } from './color.js';
 import { isCoverComponent, isLightComponent, isSwitchComponent, type ShellyComponent } from './shelly/shellyComponent.js';
 import { shellyFetch } from './shelly/shellyFetch.js';
@@ -23,7 +24,7 @@ const gasTokenOf = (mode: GasAlarmMode): GasToken => `${mode}alarm`;
 type PartToken = Exclude<ComponentKind, 'switch' | 'gas'> | AccessoryType | GasToken | 'meteroutlet';
 
 /** Part name suffix per sensor kind (identity-bearing: cached display names must keep matching). */
-const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', smoke: 'Smoke', gas: 'Gas' };
+const SENSOR_PART_LABEL: Record<SensorKind, string> = { temperature: 'Temperature', humidity: 'Humidity', flood: 'Water Leak', contact: 'Contact', illuminance: 'Light', vibration: 'Vibration', motion: 'Motion', smoke: 'Smoke', gas: 'Gas' };
 
 /** The triphase total channel (em:0 only exists on three-phase meters): hidden by default, the phases already sum to it. */
 const isTriphaseTotal = (componentId: string): boolean => componentId === 'em:0';
@@ -171,6 +172,10 @@ interface PropertyRow {
   momentary?: boolean;
 }
 
+/** Matter Thermostat SystemMode values a heating-only device uses. */
+const SYSTEM_MODE_OFF = 0;
+const SYSTEM_MODE_HEAT = 4;
+
 const smokeFragment = (v: ShellyDataType): ClusterState | undefined => (typeof v === 'boolean' ? { smokeState: v ? 2 : 0, expressedState: v ? 1 : 0 } : undefined);
 // Gas detectors: Matter has no gas detector type, so the alarm is exposed as
 // the user's choice of smoke or CO alarm (the part token). Shelly reports
@@ -209,6 +214,11 @@ const PROPERTY_MAP: PropertyRow[] = [
   // sensor, which controllers can alert and automate on (#10). Gen 1 reports it
   // as a boolean (HTTP status) or 0/1 (CoIoT).
   { property: 'vibration', cluster: 'occupancySensing', convert: (v) => (typeof v === 'boolean' || typeof v === 'number' ? { occupancy: { occupied: v === true || v === 1 } } : undefined), kinds: ['vibration'], momentary: true },
+  // BLU Motion reports motion and its own clear (no hold needed).
+  { property: 'motion', cluster: 'occupancySensing', convert: (v) => (typeof v === 'boolean' || typeof v === 'number' ? { occupancy: { occupied: v === true || v === 1 } } : undefined), kinds: ['motion'] },
+  // BLU TRV (°C; Matter 0.01 °C). It has no off: its frost-protection minimum is shown as Off (see handlersFor).
+  { property: 'current_C', cluster: 'thermostat', convert: (v) => (isValidNumber(v, -50, 100) ? { localTemperature: Math.round(v * 100) } : undefined), kinds: ['thermostat'] },
+  { property: 'target_C', cluster: 'thermostat', convert: (v) => (isValidNumber(v, TRV_MIN_C, TRV_MAX_C) ? { occupiedHeatingSetpoint: Math.round(v * 100), systemMode: v <= TRV_MIN_C ? SYSTEM_MODE_OFF : SYSTEM_MODE_HEAT } : undefined), kinds: ['thermostat'] },
   // Smoke sensors: Gen 2+ report smoke:N.alarm, Gen 1 a bare smoke flag. Matter AlarmState Critical (2) while alarming.
   { property: 'alarm', cluster: 'smokeCoAlarm', convert: smokeFragment, kinds: ['smoke'] },
   { property: 'smoke', cluster: 'smokeCoAlarm', convert: smokeFragment, kinds: ['smoke'] },
@@ -302,7 +312,7 @@ interface MappedComponent {
  * always names a sensor component by its lowercased id, so the cache path's
  * id-prefix table (KIND_BY_COMPONENT_PREFIX) is derived from this one.
  */
-const SENSOR_KIND_BY_NAME: Record<string, SensorKind> = { Temperature: 'temperature', Humidity: 'humidity', Flood: 'flood', Sensor: 'contact', Lux: 'illuminance', Vibration: 'vibration', Smoke: 'smoke', Gas: 'gas' };
+const SENSOR_KIND_BY_NAME: Record<string, SensorKind> = { Temperature: 'temperature', Humidity: 'humidity', Flood: 'flood', Sensor: 'contact', Lux: 'illuminance', Vibration: 'vibration', BluMotion: 'motion', Smoke: 'smoke', Gas: 'gas' };
 
 /** The components this plugin can expose, in device order (`clampOnRelay`: the device entry's option). */
 export function mappedComponents(device: ShellyDevice, clampOnRelay = false): MappedComponent[] {
@@ -323,6 +333,8 @@ export function mappedComponents(device: ShellyDevice, clampOnRelay = false): Ma
     else if (isLightComponent(component) && component.name === 'Light' && component.hasProperty('brightness')) mapped.push({ component, kind: 'dimmer' });
     // Gen 2+ color lights (Plus RGBW PM in RGB/RGBW mode, Pro RGBWW PM's RGB channel).
     else if ((component.name === 'Rgb' || component.name === 'Rgbw') && component.hasProperty('rgb')) mapped.push({ component, kind: 'color' });
+    // BLU TRV (see blu.ts).
+    else if (component.name === 'BluTrv') mapped.push({ component, kind: 'thermostat' });
   }
   // PowerMeter components (em1/em/pm1, with the emdata counters folded in by
   // the protocol layer). A Gen 1 relay/roller/dimmer meter (meter:N)
@@ -426,6 +438,24 @@ const PART_SHAPES: Record<PartToken, PartShape> = {
   contact: { kind: 'contact', deviceType: 'ContactSensor', clusters: { booleanState: { stateValue: true } } },
   illuminance: { kind: 'illuminance', deviceType: 'LightSensor', clusters: { illuminanceMeasurement: { measuredValue: null } } },
   vibration: { kind: 'vibration', deviceType: 'MotionSensor', clusters: { occupancySensing: { occupancy: { occupied: false } } } },
+  motion: { kind: 'motion', deviceType: 'MotionSensor', clusters: { occupancySensing: { occupancy: { occupied: false } } } },
+  // Heating only (Homebridge picks the Heating feature from occupiedHeatingSetpoint).
+  thermostat: {
+    kind: 'thermostat',
+    deviceType: 'Thermostat',
+    clusters: {
+      thermostat: {
+        localTemperature: null,
+        occupiedHeatingSetpoint: 2000,
+        systemMode: SYSTEM_MODE_HEAT,
+        controlSequenceOfOperation: 2, // HeatingOnly
+        absMinHeatSetpointLimit: TRV_MIN_C * 100,
+        absMaxHeatSetpointLimit: TRV_MAX_C * 100,
+        minHeatSetpointLimit: TRV_MIN_C * 100,
+        maxHeatSetpointLimit: TRV_MAX_C * 100,
+      },
+    },
+  },
   smoke: { kind: 'smoke', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
   smokealarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('smokeState') } },
   coalarm: { kind: 'gas', deviceType: 'SmokeSensor', clusters: { smokeCoAlarm: smokeCoAtRest('coState') } },
@@ -480,6 +510,41 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     return component;
   };
 
+  if (kind === 'thermostat') {
+    // Homebridge runs these on EVERY change, including the device's own
+    // reports pushed by the plugin - so only a value the TRV does not have yet
+    // is sent. The TRV has no off: Off sets its frost-protection minimum and
+    // Heat restores the setpoint it had.
+    const trv = () => {
+      const component = resolve('set the temperature of');
+      return component?.name === 'BluTrv' ? component : undefined;
+    };
+    const targetOf = (component: ShellyComponent): number | undefined => {
+      const value = component.getValue('target_C');
+      return isValidNumber(value) ? value : undefined;
+    };
+    let heatTarget = 21;
+    return {
+      thermostat: {
+        occupiedHeatingSetpointChange: ((request: { occupiedHeatingSetpoint: number }) => {
+          const component = trv();
+          const celsius = request.occupiedHeatingSetpoint / 100;
+          const current = component && targetOf(component);
+          if (component && (current === undefined || Math.abs(current - celsius) >= 0.05)) (component.device as unknown as BluDevice).setTrvTarget(celsius);
+        }) as never,
+        systemModeChange: ((request: { systemMode: number }) => {
+          const component = trv();
+          const current = component && targetOf(component);
+          if (!component || current === undefined) return;
+          const blu = component.device as unknown as BluDevice;
+          if (request.systemMode === SYSTEM_MODE_OFF && current > TRV_MIN_C) {
+            heatTarget = current;
+            blu.setTrvTarget(TRV_MIN_C);
+          } else if (request.systemMode === SYSTEM_MODE_HEAT && current <= TRV_MIN_C) blu.setTrvTarget(heatTarget);
+        }) as never,
+      },
+    };
+  }
   if (kind === 'cover') {
     const cover = (action: string) => {
       const component = resolve(action);
@@ -598,6 +663,8 @@ interface ShellyAccessoryContext {
   partComponents: Record<string, string>;
 }
 
+const MATTER_LABEL_MAX = 32;
+
 /** The seed suffix for a rotation generation (empty for generation 0 - legacy identities stay stable). */
 const generationSuffix = (generation: number): string => (generation > 0 ? `|g${generation}` : '');
 
@@ -658,7 +725,8 @@ function composeOne(
   const context: ShellyAccessoryContext = { ...base, partTypes, partComponents, ...(Object.keys(partMeters).length ? { partMeters } : {}) };
   return {
     UUID: uuid,
-    displayName,
+    // Matter's NodeLabel holds 32 characters; a longer name fails the registration.
+    displayName: displayName.length > MATTER_LABEL_MAX ? displayName.slice(0, MATTER_LABEL_MAX).trimEnd() : displayName,
     ...template,
     context,
     deviceType: platform.matter.deviceTypes.BridgedNode,
@@ -780,7 +848,7 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
   // cluster - the core composes the Battery feature from these attributes.
   const battery = device.getComponent('battery');
-  const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind) || kind === 'button') ? { powerSource: powerSourceClusterFor(battery) } : undefined;
+  const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind) || kind === 'button' || kind === 'thermostat') ? { powerSource: powerSourceClusterFor(battery) } : undefined;
   const template: AccessoryTemplate = { serialNumber: device.mac, manufacturer: 'Shelly', model: device.model, firmwareRevision: device.firmware };
   return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, parentClusters);
 }
@@ -807,6 +875,7 @@ const KIND_BY_COMPONENT_PREFIX: Record<string, ComponentKind> = {
   input: 'button',
   rgb: 'color',
   rgbw: 'color',
+  blutrv: 'thermostat',
 };
 
 const isElectrical = (cluster: string): boolean => cluster === 'electricalPowerMeasurement' || cluster === 'electricalEnergyMeasurement';

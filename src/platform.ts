@@ -7,6 +7,7 @@ import type { API, DynamicPlatformPlugin, Logging, MatterAccessory, MatterAPI, P
 import { AnsiLogger, LogLevel, TimestampFormat } from './shelly/utils/logger.js';
 
 import { clampOnRelayEnabled, configForDevice, deviceConfigs, deviceHidden, isSplittableKind, METER_TOTAL_KIND, meterConfig } from './deviceConfig.js';
+import { BluDevice, bluDevicesOf } from './blu.js';
 import { DATA_DIR, DEVICES_FILE, FORGET_FILE, MIN_HOMEBRIDGE, PLATFORM_NAME, PLUGIN_NAME, SHELLY_ID_PATTERN, UNOFFICIAL_FIRMWARE_PORT } from './settings.js';
 import { accessorySignatures, attachComponentUpdates, buildShellyAccessories, cachedAccessoryDeviceId, cachedGenerationOf, expectedShellsFromCache, mappedComponents, pushCurrentState, uuidsOf } from './shellyAccessory.js';
 import type { DiscoveredDevice } from './shelly/mdnsScanner.js';
@@ -37,7 +38,9 @@ interface KnownDevice {
   /** Battery device that sleeps between reports (restored from its saved payload when unreachable at startup). */
   sleeping?: boolean;
   /** How the device reports state changes to the plugin (recorded at connect time; shown in the settings UI). */
-  transport?: 'coiot' | 'websocket' | 'udp';
+  transport?: 'coiot' | 'websocket' | 'udp' | 'blu';
+  /** BLU devices: the id of the Shelly gateway they report through. */
+  gateway?: string;
   /** The device's own RPC-over-UDP destination (Gen 2+), so the UI can point out a device configured for UDP while the option is off, or the reverse. */
   udpDestination?: string | null;
 }
@@ -46,7 +49,7 @@ const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
 /** How long a registration keeps waiting for the Matter server to come up. */
 const REGISTER_DEADLINE_MS = 80_000;
-const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination'] as const;
+const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination', 'gateway'] as const;
 
 /** The device's RPC-over-UDP destination, or null when it has none (the value is peer-supplied: anything but a string counts as none). */
 function udpDestinationOf(device: ShellyDevice): string | null {
@@ -85,6 +88,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly shelly?: Shelly;
   private readonly shellyLog!: AnsiLogger;
   private readonly hostRetryTimers = new Map<string, NodeJS.Timeout>();
+  /** BLU devices by id (see blu.ts); their components are not in the protocol layer's device list. */
+  private readonly bluDevices = new Map<string, BluDevice>();
   private registrationQueue: Promise<void> = Promise.resolve();
   private readonly pendingUpdateAttach: { device: ShellyDevice; accessory: MatterAccessory }[] = [];
   private attachTimer?: NodeJS.Timeout;
@@ -188,9 +193,27 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       .catch((error: unknown) => this.log.error(`${errorLabel}: ${getErrorMessage(error)}`));
   }
 
-  /** The unregister mirror of registerVerified's bookkeeping: drops every record of the accessory. */
+  /** Whether the bridge has the accessory: its first part's first (primary) cluster reads back. */
+  private async isRegistered(accessory: MatterAccessory): Promise<boolean> {
+    const part = accessory.parts?.[0];
+    if (!part) return false;
+    try {
+      return (await this.matter.getAccessoryState(accessory.UUID, Object.keys(part.clusters)[0], part.id)) !== undefined;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The unregister mirror of registerVerified's bookkeeping: drops every
+   * record of the accessory. On child bridges the removal completes
+   * asynchronously, like a registration - so wait until it has: re-registering
+   * the same UUID before that is rejected as a duplicate (an in-place
+   * re-register after a firmware update or rename, #5).
+   */
   private async unregisterAccessory(accessory: MatterAccessory): Promise<void> {
     await this.matter.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    for (let poll = 0; poll < 40 && !this.stopped && (await this.isRegistered(accessory)); poll++) await sleep(250);
     this.matterAccessories.delete(accessory.UUID);
     this.registeredSignatures.delete(accessory.UUID);
   }
@@ -212,7 +235,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     } catch {
       // No (or unreadable) request file.
     }
-    for (const id of requested) {
+    // Save is what removes a forgotten device's config entry: a request whose
+    // entry is still there was never saved, and applying it would bring a
+    // live device back as a NEW accessory (room and automations lost).
+    const unsaved = requested.filter((id) => configForDevice(this.config, id, this.knownDevices.get(id)?.host) !== undefined);
+    for (const id of unsaved) this.log.info(`Not forgetting Shelly ${id}: it is still in the plugin settings (they were not saved after Forget).`);
+    const applied = requested.filter((id) => !unsaved.includes(id));
+    for (const id of applied) {
       const known = this.knownDevices.get(id);
       const generation = Math.max(known?.generation ?? 0, cachedGenerationOf(cachedByDevice.get(id) ?? [])) + 1;
       this.generationByDevice.set(id, generation);
@@ -230,7 +259,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.log.error(`Failed to record forgotten devices: ${getErrorMessage(error)}`);
       }
     }
-    return new Set([...requested, ...[...this.knownDevices.values()].filter((known) => known.forgotten === true).map((known) => known.id)]);
+    return new Set([...applied, ...[...this.knownDevices.values()].filter((known) => known.forgotten === true).map((known) => known.id)]);
   }
 
   /** The host string config entries are matched against for a device (its host-only entry's host when added from one). */
@@ -240,7 +269,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
 
   /** A component of a connected device, or undefined while it is offline. */
   shellyComponent(deviceId: string, componentId: string): ShellyComponent | undefined {
-    return this.shelly?.getDevice(deviceId)?.getComponent(componentId);
+    return (this.shelly?.getDevice(deviceId) ?? this.bluDevices.get(deviceId))?.getComponent(componentId);
   }
 
   configureMatterAccessory(accessory: MatterAccessory): void {
@@ -407,6 +436,13 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // endpoint locks ("Cannot lock ... synchronously") when devices come
       // online together, and controllers can miss the dropped notification.
       this.enqueue(`Failed to register Shelly ${device.id}`, () => this.registerDevice(device));
+      // BLU devices paired to this device (a BLU gateway, or a Gen 2+ device acting as one).
+      for (const blu of bluDevicesOf(device)) {
+        const other = this.bluDevices.get(blu.id)?.gateway;
+        if (other && other.id !== device.id) continue; // paired to two gateways: the first one serves it
+        this.bluDevices.set(blu.id, blu);
+        this.enqueue(`Failed to register BLU ${blu.id}`, () => this.registerDevice(blu as unknown as ShellyDevice));
+      }
     });
 
     // A CoIoT report from a host without a device object (a sleeping sensor
@@ -553,14 +589,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
    */
   private async registerVerified(accessory: MatterAccessory): Promise<boolean> {
     const label = accessory.displayName;
-    // Confirm registration by reading the first part's first (primary) cluster back.
+    // Registration is confirmed by reading the primary cluster back (isRegistered), so a part is required.
     const part = accessory.parts?.[0];
     if (!part) {
       this.log.error(`Could not register ${label}: it has no parts.`);
       return false;
     }
-    const probeCluster = Object.keys(part.clusters)[0];
-    const verified = async (): Promise<boolean> => (await this.matter.getAccessoryState(accessory.UUID, probeCluster, part.id)) !== undefined;
 
     const deadline = Date.now() + REGISTER_DEADLINE_MS;
     let warned = false;
@@ -591,7 +625,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       // dropped (which happens when the Matter server is not started yet)
       // and re-registering.
       for (let poll = 0; poll < 40 && !this.stopped; poll++) {
-        if (await verified()) {
+        if (await this.isRegistered(accessory)) {
           this.registeredSignatures.set(accessory.UUID, accessorySignatures(accessory));
           this.matterAccessories.set(accessory.UUID, accessory);
           return true;
@@ -689,6 +723,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   }
 
   private async registerDevice(device: ShellyDevice): Promise<void> {
+    // BLU devices ride the same path (see blu.ts).
+    const blu = (device as unknown) instanceof BluDevice ? (device as unknown as BluDevice) : undefined;
     const host = this.configHost(device);
     const mapped = mappedComponents(device, clampOnRelayEnabled(configForDevice(this.config, device.id, host)));
     this.rememberDevice({
@@ -702,7 +738,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       kinds: mapped.map(({ kind, total }) => (total === true ? METER_TOTAL_KIND : kind)),
       indexes: mapped.map(({ component }) => component.index),
       ...(device.sleepMode ? { sleeping: true } : {}),
-      transport: device.gen === 1 ? 'coiot' : device.udp ? 'udp' : 'websocket',
+      transport: blu ? 'blu' : device.gen === 1 ? 'coiot' : device.udp ? 'udp' : 'websocket',
+      ...(blu ? { gateway: blu.gateway.id } : {}),
       ...(device.gen >= 2 ? { udpDestination: udpDestinationOf(device) } : {}),
     });
     if (this.isHidden(device.id, host)) {
@@ -725,8 +762,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     if (accessories.length === 0) {
       if (mapped.some(({ kind }) => kind === 'gas')) {
         this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} is a gas detector - Matter has no gas detector type; set its "Gas alarm shown as" option to expose the alarm as a smoke or CO alarm.`);
-      } else {
-        this.log.info(`Shelly ${device.id} (${device.model}) at ${device.host} has no supported components yet - skipping.`);
+      } else if (blu || device.bthomeDevices.size === 0) {
+        // A BLU gateway has nothing of its own to expose; its paired devices register separately.
+        this.log.info(`Shelly ${device.id} (${device.model})${device.host ? ` at ${device.host}` : ''} has no supported components yet - skipping.`);
       }
       return;
     }
@@ -798,7 +836,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
           const cached = this.matterAccessories.get(accessory.UUID);
           if (cached) await this.unregisterAccessory(cached);
         }
-        this.log.info(`Registering ${accessory.displayName} (${device.model}, gen ${device.gen}) at ${device.host} as Matter accessory.`);
+        const origin = blu ? `(${device.model}) via ${blu.gateway.id}` : `(${device.model}, gen ${device.gen}) at ${device.host}`;
+        this.log.info(`Registering ${accessory.displayName} ${origin} as Matter accessory.`);
         if (!(await this.registerVerified(accessory))) continue;
         settled = true;
       }

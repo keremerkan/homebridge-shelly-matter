@@ -132,7 +132,7 @@
     /** Which transport the device reports over, with a hint when its RPC-over-UDP setting and the plugin option disagree. */
     function transportHtml(device) {
       if (!device.transport) return '';
-      const names = { coiot: 'CoIoT', websocket: 'WebSocket', udp: 'RPC over UDP' };
+      const names = { coiot: 'CoIoT', websocket: 'WebSocket', udp: 'RPC over UDP', blu: `Bluetooth via ${escapeAttr(device.gateway ?? 'a gateway')}` };
       const parts = [names[device.transport] ?? device.transport];
       if (device.sleeping) parts.push('sleeps between reports');
       if (device.transport === 'websocket') {
@@ -162,7 +162,7 @@
         // diagnostic for RPC over UDP (a plugin-wide switch that only applies
         // to devices configured for it on the device side).
         const hostHtml = device.host ? `<a href="http://${escapeAttr(device.host)}/" target="_blank" rel="noopener" title="Open the device's web page">${escapeAttr(device.host)}</a>` : '';
-        const detail = [hostHtml, `gen ${escapeAttr(String(device.gen))}`, device.model ? escapeAttr(device.model) : ''].filter(Boolean).join(' · ');
+        const detail = [hostHtml, device.transport === 'blu' ? 'BLU' : `gen ${escapeAttr(String(device.gen))}`, device.model ? escapeAttr(device.model) : ''].filter(Boolean).join(' · ');
         const transport = transportHtml(device);
         const multi = row.channelTypes.length > 0;
         const span = multi ? row.channelTypes.length + 1 : 1;

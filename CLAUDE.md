@@ -74,7 +74,7 @@ the settings UI always auto-fills so mDNS can be disabled later. The settings
 table is the primary editor; it rewrites entries wholesale on change.
 `accessoryType` applies to switch components only — every other kind is fixed
 (`ComponentKind` in deviceConfig.ts: switch/cover/dimmer plus the read-only
-temperature/humidity/flood/contact/illuminance/vibration/smoke/gas/meter; the kind predicates, `channelHidden`,
+temperature/humidity/flood/contact/illuminance/vibration/motion/smoke/gas/meter, plus thermostat (BLU TRV); the kind predicates, `channelHidden`,
 `powerMeteringEnabled` and `resolveAccessoryType` live there too so the
 settings UI imports them from dist instead of keeping copies). Sensor and meter parts never split and have
 no type choice; a Gen 1 relay/roller/dimmer meter (`meter:N`) merges onto its
@@ -108,7 +108,10 @@ device table. devices.json records per-channel `kinds` for the UI.
   (logs `Matter server not started` but resolves), so verification reads state
   back (`getAccessoryState` on an attribute the accessory actually declares)
   and retries up to ~80s. Re-registering too early hits the duplicate-UUID
-  error; polling first prevents it.
+  error; polling first prevents it. UNREGISTERING is just as asynchronous:
+  `unregisterAccessory` polls until the accessory is gone, or the in-place
+  re-register (rename/OTA) of the same UUID is rejected as a duplicate and the
+  accessory drops off the bridge until a retry (#5, rig-reproduced 2026-10-09).
 - **Cache-shell registration at `didFinishLaunching`**: accessories are
   re-registered from `configureMatterAccessory` shells BEFORE discovery, using
   the serializable `context` ({deviceId, partTypes, partComponents}).
@@ -197,7 +200,10 @@ device table. devices.json records per-channel `kinds` for the UI.
   after a crash), sleeping payload `<id>.json` deleted. `/devices` hides
   forgotten and pending ids; `/scan` cancels a pending forget for devices
   that answer; `applyView` takes `forgotten: [{id, host}]` to drop their
-  config entries. A live device just comes back (Hide is for those).
+  config entries. A request whose device still has a config entry is skipped and
+  dropped (Forget clicked but the settings never saved: applying it would bring
+  a live device back as a new accessory). A live device just comes back (Hide
+  is for those). `fixtures/forget.mjs` + `fixtures/forget-unsaved.mjs` cover it.
 - **Sleeping devices** (`restoreSleepingDevice`): a CoIoT report from a host
   with no device object is DROPPED by the vendored layer, and battery sensors
   are unreachable at startup - so the platform saves their payloads
@@ -235,6 +241,25 @@ device table. devices.json records per-channel `kinds` for the UI.
   command's transaction); and after each command the commanded values are
   re-asserted, because `switchColorMode` converts the OLD color into the new
   mode without awaiting Homebridge's async stop and overwrites the command.
+- **BLU devices** (`src/blu.ts`): each device paired to a gateway (bthomeDevices
+  of ANY Gen 2+ device) is a `BluDevice` (id `shellyblu-<ADDRESS>`) that quacks
+  like a ShellyDevice and holds real protocol-layer `ShellyComponent`s, named
+  like the components of Shelly sensor products so the existing mapping applies
+  (`temperature:N`/tC, `humidity:N`/rh, `lux:N`/value, `sensor:N`/contact_open,
+  `battery`/level); motion is `blumotion:N` (Gen 1 Shelly Motion has a `Motion`
+  component fed differently - mapping that name would give it a dead tile), the
+  TRV is `blutrv:0` (temperature 0 = target_C, 1 = current_C). It registers
+  through the normal registerDevice path (own identity, config entry, settings
+  row; devices.json `transport: 'blu'` + `gateway`, empty host) and its
+  components are fed from the gateway's `bthomesensor_update`. Components
+  iterate in id order: every BLU reading is index 0, so report order must not
+  decide part order (identity). Homebridge runs thermostat handlers on EVERY
+  change including our own pushes, so a setpoint/mode is only sent when the TRV
+  does not have it yet; the TRV has no off (Off = 4 °C, Heat restores).
+  `fixtures/blu.mjs` + `fixtures/blu-platform.mjs` cover it; rig-verified on
+  HB 2.4.1-beta.11 (registration, Heating feature, setpoint/mode writes).
+- **Matter labels hold 32 characters**: a longer accessory displayName fails
+  the registration (NodeLabel constraint), so composeOne truncates it.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
   idle WebSockets by design; reconnect cycling is normal.
 
@@ -305,6 +330,8 @@ device table. devices.json records per-channel `kinds` for the UI.
   from a merged-clamp cache); `fixtures/buttons.mjs` covers button mapping
   and press forwarding (Gen 1 counters, Gen 2+ events); `fixtures/color.mjs`
   covers color conversions, mapping, handlers and the color-temperature echo;
+  `fixtures/blu.mjs` / `fixtures/blu-platform.mjs` cover BLU devices (mapping,
+  handlers, cache round trip; real platform restart + devices.json rows);
   `fixtures/port-loopback.mjs` runs the protocol layer against a fake Gen 2
   device on a non-default port over real HTTP/WebSocket (Range Extender);
   `fixtures/deferred-rotation.mjs` runs a real platform instance against a
