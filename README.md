@@ -53,6 +53,11 @@ Matter on and HAP off.
   tiles) is a separate feature that requires a connected electricity
   account, currently offered with participating US utilities only; no
   accessory, bridged or direct, gets it without one.
+- **Battery level is shown on a device's accessories, not on the device.**
+  For a battery-powered device, such as an H&T, a Door/Window or a BLU TRV,
+  Apple Home shows no battery level on the device itself, but each of its
+  accessories (for example the temperature and the humidity of an H&T) shows
+  the correct one. Open one of them to see it.
 - Commissioned controllers (fabrics) are shown in the Homebridge UI starting
   with v5.28.0 (plugin menu > Bridge Settings); this plugin also lists them in
   its own settings page ("Connected controllers").

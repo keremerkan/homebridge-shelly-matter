@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - 2026-10-08
 
+### Upgrade note
+
+Some accessories are re-created once, on the first restart after updating: they reappear in Apple Home's default room, so move them back to their rooms (and check automations that use them). Which ones:
+
+- **Every battery-powered device** (H&T, Flood, Door/Window, Smoke, Button1): their battery level moves to their accessories so Apple Home can show it.
+- **Energy meters with a relay** (Pro EM-50, EM Gen4, Gen 1 EM / 3EM): each clamp becomes its own channel.
+- **Power strips whose type was never chosen**: their sockets become outlets.
+- **Devices with Plus Add-on probes** on a single relay or light: the probes move to their own "Sensors" accessory. A Plus i4 that showed add-on sensors is re-created too.
+
+Everything else keeps its identity, rooms and automations.
+
 ### Changed
 
+- **Battery levels now show in Apple Home** ([#19](https://github.com/keremerkan/homebridge-shelly-matter/issues/19)): Home shows no battery level on a battery-powered device itself, only on its accessories. The level is now reported on each accessory (for example the temperature and the humidity of an H&T), so it shows there. This applies to the H&T, Flood, Door/Window, Smoke, Button1 and BLU devices; before, Home showed no battery level for them (a placeholder 100 % on thermostats). Their accessories are re-created once on the first restart after updating; reassign their rooms afterwards.
 - Power strips (Power Strip 4 Gen4) default to outlets like plugs, so their sockets show the wattage on the tile ([#21](https://github.com/keremerkan/homebridge-shelly-matter/issues/21)). Strips whose type was never chosen are re-created once as outlets; set `accessoryType` to keep another type.
 - **Energy meter clamps are their own channels** ([#14](https://github.com/keremerkan/homebridge-shelly-matter/issues/14)): on EM devices with a relay (Pro EM-50, EM Gen4, Gen 1 EM / 3EM), the first clamp was merged onto the relay's accessory, so the relay showed that clamp's power although the relay (a contactor output) is not what the clamp measures. Every clamp is now its own meter channel (an electrical sensor, or a virtual outlet with tile wattage) that can be named, hidden and typed, and the relay is a plain relay. These devices' accessories are re-created once, on the first restart after updating; reassign their rooms afterwards. To keep the first clamp's wattage on the relay's tile, turn on the new `clampOnRelay` option (below).
 - Meter channels are addressed with `meter` in a device's `channels` (`{ "meter": 0, "accessoryType": "outlet" }`), since the relay and the first clamp are both 0 on EM devices. Existing `channel` entries for meters keep working on devices without a relay (3EM, PM Mini); saving the settings table rewrites them.
@@ -28,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings table: the RPC-over-UDP hint no longer claims a device's destination is "not this host" when it may only be waiting for a restart or have a different listen port; it now says what to check.
 - Settings form: the device's "Accessory type" help text started with a stray ". " and lacked its first sentence.
 - The Shelly protocol layer is updated to matterbridge-shelly 2.7.0, which includes the Range Extender fix this plugin carried locally (#5). Gen 2+ devices on port 443 are reached over HTTPS and secure WebSocket.
+- Settings table: a BLU gateway, or a device with nothing to expose yet, no longer offers a type, name and hide control (it was offered "Light"); a gateway row says how many paired devices it has, which are listed separately ([#19](https://github.com/keremerkan/homebridge-shelly-matter/issues/19)).
 - A device that changed while Homebridge was down (a firmware update or a rename) could fail to re-register at startup with "already registered" and drop off the bridge for a while ([#5](https://github.com/keremerkan/homebridge-shelly-matter/issues/5)): the old registration is now fully removed before the new one is added.
 - A device whose name is longer than 32 characters failed to register (Matter limits accessory names to 32 characters); the name is now shortened instead.
 - Hardening against misbehaving hosts on the local network (with thanks to @tomo2403, #18): a device id that is not a plain file name is rejected before it names a cache file, response bodies are size- and time-limited, `Shelly.GetComponents` paging stops when a page makes no progress, UDP reports cannot create unlimited components or refreshes, the Gen 1 password no longer appears in the debug log, and a device reporting a non-string name or model no longer empties the settings table.

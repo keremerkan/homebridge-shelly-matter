@@ -293,8 +293,23 @@ const meterPartLabel = (componentId: string, index: number): string =>
 
 /** The parent-level clusters of an accessory (the MatterAccessory type does not declare them). */
 const accessoryClusters = (accessory: MatterAccessory): Record<string, ClusterState> => (accessory as { clusters?: Record<string, ClusterState> }).clusters ?? {};
-/** The parent-level powerSource state of an accessory, if it carries one. */
+/** The parent-level powerSource state of an accessory (shells registered before the battery moved to the parts). */
 const accessoryPowerSource = (accessory: MatterAccessory): ClusterState | undefined => accessoryClusters(accessory).powerSource;
+/** The battery state an accessory carries, wherever it is registered. */
+const batteryOf = (accessory: MatterAccessory): ClusterState | undefined =>
+  accessoryPowerSource(accessory) ?? accessory.parts?.find((part) => part.clusters.powerSource !== undefined)?.clusters.powerSource as ClusterState | undefined;
+/**
+ * Where an accessory's battery is registered: every part (the parent of a
+ * shell kept at its old structure while its rotation is pending).
+ */
+const batteryTargets = (accessory: MatterAccessory): (string | undefined)[] => [
+  ...(accessoryPowerSource(accessory) ? [undefined] : []),
+  ...(accessory.parts ?? []).filter((part) => part.clusters.powerSource !== undefined).map((part) => part.id),
+];
+const pushBattery = (platform: ShellyMatterPlatform, accessory: MatterAccessory, level: ShellyDataType): void => {
+  const fragment = powerSourceFragment(level);
+  if (fragment) for (const partId of batteryTargets(accessory)) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment, partId);
+};
 /** The UUIDs of a list of accessories. */
 export const uuidsOf = (accessories: MatterAccessory[]): Set<string> => new Set(accessories.map((accessory) => accessory.UUID));
 
@@ -701,7 +716,7 @@ function composeOne(
   seed: string,
   displayName: string,
   template: AccessoryTemplate,
-  parentClusters?: Record<string, ClusterState>,
+  battery?: ClusterState,
   partNameFor: (component: Composable) => string = () => displayName,
 ): MatterAccessory {
   const { deviceId } = base;
@@ -718,7 +733,9 @@ function composeOne(
       id: partId,
       displayName: partNameFor(component),
       deviceType: matterDeviceTypeFor(platform, component.token),
-      clusters: component.clustersFor(component.token),
+      // Apple Home reads a battery from the device endpoints and ignores it on
+      // the bridged parent, so every part carries it (each tile shows it, #19).
+      clusters: { ...component.clustersFor(component.token), ...(battery ? { powerSource: structuredClone(battery) } : {}) },
       handlers: handlersFor(platform, uuid, deviceId, component.componentId, partId, component.token),
     };
   });
@@ -730,7 +747,6 @@ function composeOne(
     ...template,
     context,
     deviceType: platform.matter.deviceTypes.BridgedNode,
-    ...(parentClusters ? { clusters: parentClusters } : {}),
     parts,
   };
 }
@@ -762,7 +778,7 @@ function composeAccessories(
   all: Composable[],
   actuatorIndexes: number[],
   template: AccessoryTemplate,
-  parentClusters?: Record<string, ClusterState>,
+  battery?: ClusterState,
 ): MatterAccessory[] {
   const entry = configForDevice(platform.config, deviceId, host);
   const configOf = ({ kind, index }: Composable) => (kind === 'meter' ? meterConfig(entry, index, actuatorIndexes) : channelConfig(entry, index));
@@ -819,17 +835,17 @@ function composeAccessories(
       const name = channelConfig(entry, one.index)?.name ?? channelName(one);
       return composeOne(platform, base, [one], `${deviceId}|split|${one.index}:${one.token}${generationSuffix(generation)}`, name, template);
     });
-    if (sensors.length > 0) split.push(composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, parentClusters, channelName));
+    if (sensors.length > 0) split.push(composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, battery, channelName));
     return split;
   }
   if (actuators.length > 0 && sensors.length > 0) {
     const outputs = typed.filter(({ kind }) => !isSensorKind(kind));
     return [
       composeOne(platform, base, outputs, groupedSeed(outputs), displayName, template, undefined, channelName),
-      composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, parentClusters, channelName),
+      composeOne(platform, base, sensors, groupedSeed(sensors), `${displayName} Sensors`, template, battery, channelName),
     ];
   }
-  return [composeOne(platform, base, typed, groupedSeed(typed), displayName, template, parentClusters, channelName)];
+  return [composeOne(platform, base, typed, groupedSeed(typed), displayName, template, battery, channelName)];
 }
 
 /** Builds the MatterAccessories for a live Shelly device (empty if it has no visible supported components). */
@@ -845,12 +861,12 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
     // own endpoint - the shape controllers (Apple Home included) support.
     clustersFor: (token) => ({ ...clustersFor(component, token, metering), ...(meter ? meterClustersFor(meter, metering) : {}) }),
   }));
-  // Battery state (H&T, Flood, ...) lives on the composed parent's PowerSource
-  // cluster - the core composes the Battery feature from these attributes.
-  const battery = device.getComponent('battery');
-  const parentClusters = battery && all.some(({ kind }) => isSensorKind(kind) || kind === 'button' || kind === 'thermostat') ? { powerSource: powerSourceClusterFor(battery) } : undefined;
+  // Battery state (H&T, Flood, BLU, ...): a PowerSource cluster on the parts -
+  // the core composes the Battery feature from these attributes.
+  const batteryComponent = device.getComponent('battery');
+  const battery = batteryComponent && all.some(({ kind }) => isSensorKind(kind) || kind === 'button' || kind === 'thermostat') ? powerSourceClusterFor(batteryComponent) : undefined;
   const template: AccessoryTemplate = { serialNumber: device.mac, manufacturer: 'Shelly', model: device.model, firmwareRevision: device.firmware };
-  return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, parentClusters);
+  return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, battery);
 }
 
 /** The device id a cached accessory belongs to, if it is one of ours. */
@@ -961,10 +977,11 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   let cachedDeviceName: string | undefined;
   let cachedActuatorIndexes: number[] | undefined;
   const cachedGeneration = cachedGenerationOf(cachedList);
-  // Metering switched off since the cache was written strips clusters from
-  // parts that keep their identity - a structural change, which must rotate
-  // (here, pre-online) rather than reappear on a uniqueId controllers know.
-  let stripped = false;
+  // A structural change on parts that keep their identity (metering switched
+  // off strips clusters; a battery still on the parent moves to the parts)
+  // must rotate (here, pre-online) rather than reappear on a uniqueId
+  // controllers know.
+  let restructured = false;
   for (const cached of cachedList) {
     const context = cached.context as Partial<ShellyAccessoryContext> | undefined;
     if (!context?.partComponents || !context.partTypes) continue;
@@ -978,12 +995,13 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       const kind = match ? KIND_BY_COMPONENT_PREFIX[match[1].toLowerCase()] : undefined;
       if (!match || !kind) continue;
       const index = match[2] !== undefined ? Number(match[2]) : -1;
-      if (!metering && Object.keys(part.clusters).some(isElectrical)) stripped = true;
+      if (!metering && Object.keys(part.clusters).some(isElectrical)) restructured = true;
       // The carried snapshot keeps the registered shape (metering-filtered);
       // it is only reused for a token whose clusters at rest match the
       // registered token's (a retyped switch keeps them, a gas alarm switched
       // from smoke to CO does not).
       const carried = clustersForMetering(part.clusters, metering);
+      delete carried.powerSource; // re-added to every part by the composition
       const registeredToken = context.partTypes[part.id] as PartToken | undefined;
       const sameShape = (token: PartToken): boolean => registeredToken !== undefined && deepEqual(PART_SHAPES[token]?.clusters, PART_SHAPES[registeredToken]?.clusters);
       components.set(componentId, { componentId, index, kind, meterId: context.partMeters?.[part.id], clustersFor: (token) => (sameShape(token) ? carried : clustersAtRest(token)) });
@@ -994,7 +1012,10 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   reshapeClampOnRelay(components, carriedById, clampOnRelayEnabled(entry));
 
   const shell = template;
-  const powerSource = accessoryPowerSource(shell);
+  const powerSource = batteryOf(shell);
+  // A battery on the parent (registered before it moved to the parts) is a
+  // structural change: it rotates pre-online like metering off.
+  if (cachedList.some((cached) => accessoryPowerSource(cached) !== undefined)) restructured = true;
   const buildAt = (generation: number): MatterAccessory[] =>
     composeAccessories(
       platform,
@@ -1008,13 +1029,13 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
       // Caches written before actuatorIndexes existed: the cached (visible) actuators.
       cachedActuatorIndexes ?? actuatorIndexesOf([...components.values()]),
       { serialNumber: shell.serialNumber, manufacturer: shell.manufacturer, model: shell.model, firmwareRevision: shell.firmwareRevision },
-      powerSource ? { powerSource } : undefined,
+      powerSource,
     );
 
   const atCachedGeneration = buildAt(cachedGeneration);
   if (atCachedGeneration.length === 0) return { shells: [], generation: cachedGeneration };
   const cachedUuids = uuidsOf(cachedList);
-  const unchanged = !stripped && atCachedGeneration.length === cachedUuids.size && atCachedGeneration.every((expected) => cachedUuids.has(expected.UUID));
+  const unchanged = !restructured && atCachedGeneration.length === cachedUuids.size && atCachedGeneration.every((expected) => cachedUuids.has(expected.UUID));
   // A composition change rebuilds one generation up so the rotation lands on
   // a NEVER previously used identity (a revert would otherwise resurrect
   // endpoints controllers just deleted); the persisted floor wins when higher.
@@ -1107,11 +1128,7 @@ export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyD
     push(clustersFor(component, token, metering));
     if (meter) push(meterClustersFor(meter, metering));
   }
-  // Battery lives on the composed parent, not on a part.
-  if (accessoryPowerSource(accessory)) {
-    const fragment = powerSourceFragment(device.getComponent('battery')?.getValue('level'));
-    if (fragment) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment);
-  }
+  pushBattery(platform, accessory, device.getComponent('battery')?.getValue('level'));
 }
 
 type Gesture = 'singlePress' | 'doublePress' | 'longPress';
@@ -1213,12 +1230,9 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
     if (meter) forward(meter, PROPERTY_MAPS.meter);
   }
 
-  // Battery updates target the composed parent's PowerSource cluster.
-  if (accessoryPowerSource(accessory)) {
+  if (batteryTargets(accessory).length > 0) {
     device.getComponent('battery')?.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
-      if (property !== 'level') return;
-      const fragment = powerSourceFragment(value);
-      if (fragment) void platform.matter.updateAccessoryState(accessory.UUID, 'powerSource', fragment);
+      if (property === 'level') pushBattery(platform, accessory, value);
     });
   }
 }

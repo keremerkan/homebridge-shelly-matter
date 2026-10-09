@@ -148,6 +148,12 @@
       return parts.join(' · ');
     }
 
+    /** A connected device with nothing to expose: a BLU gateway (its devices are rows of their own) or a model not mapped yet. */
+    function emptyCellHtml(row) {
+      if (row.bluDevices > 0) return `<span class="text-muted">BLU gateway: ${row.bluDevices} paired device${row.bluDevices === 1 ? '' : 's'}, listed separately</span>`;
+      return '<span class="text-muted">nothing to expose yet</span>';
+    }
+
     function nameInputHtml(row) {
       return `<input type="text" class="form-control form-control-sm" data-name-entry="${escapeAttr(row.id)}" value="${escapeAttr(row.name)}" placeholder="e.g. Office Ceiling">`;
     }
@@ -173,10 +179,10 @@
               <br><button type="button" class="btn btn-link btn-sm p-0 text-danger" style="font-size: 0.8rem;" data-forget="${escapeAttr(device.id)}" title="Remove this device from the table, the configuration and the bridge (for devices that are gone)">Forget</button>
             </td>
             <td>${multi ? 'device' : ''}</td>
-            <td>${nameInputHtml(row)}</td>
-            <td>${multi ? `<span class="text-muted">per channel</span>${clampCellHtml(row)}` : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
+            <td>${row.empty ? '' : nameInputHtml(row)}</td>
+            <td>${row.empty ? emptyCellHtml(row) : multi ? `<span class="text-muted">per channel</span>${clampCellHtml(row)}` : (row.sensor ? sensorCellHtml(row) : typeCellHtml(row))}</td>
             <td style="text-align: center;" title="Expose each channel as its own accessory so channels can be placed in different rooms. Changing this re-creates the accessories - reassign rooms after.">${multi && row.splittable ? `<input type="checkbox" data-split="${escapeAttr(device.id)}" ${row.split ? 'checked' : ''}>` : ''}</td>
-            <td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}></td>
+            <td style="text-align: center;">${row.empty ? '' : `<input type="checkbox" data-hide="${escapeAttr(device.id)}" ${row.hidden ? 'checked' : ''}>`}</td>
           </tr>
           ${row.channelTypes.map((_, i) =>
             `<tr><td>${escapeAttr(row.channelLabels[i])}</td><td><input type="text" class="form-control form-control-sm" data-channel-name="${escapeAttr(device.id)}:${i}" value="${escapeAttr(row.channelNames[i])}" placeholder="(used when split)" title="Channel name, shown in the Home app only when the device is split into separate accessories. Grouped devices always use the device name plus the channel number."></td><td>${typeCellHtml(row, i)}</td><td></td><td style="text-align: center;"><input type="checkbox" data-hide="${escapeAttr(device.id)}:${i}" ${row.channelsHidden[i] ? 'checked' : ''}></td></tr>`,

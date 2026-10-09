@@ -70,6 +70,9 @@ export function deviceView({ config, devices } = {}) {
       sensor,
       splittable: kinds === null || kinds.every(isSplittableKind),
       sensorKinds: kinds?.filter(isSensorKind) ?? [],
+      // Connected, but nothing to expose (a BLU gateway, or a model not mapped
+      // yet): no name, type or hide control. A gateway's BLU devices are rows of their own.
+      ...(kinds !== null && kinds.length === 0 ? { empty: true, bluDevices: listedDevices(devices).filter((other) => other.gateway === device.id).length } : {}),
       // Per-kind options, present only when the device has the kind (the
       // page renders a control for each present option).
       ...(kinds?.includes('vibration') ? { vibrationAsMotion: vibrationAsMotionEnabled(entry) } : {}),

@@ -258,6 +258,23 @@ device table. devices.json records per-channel `kinds` for the UI.
   does not have it yet; the TRV has no off (Off = 4 °C, Heat restores).
   `fixtures/blu.mjs` + `fixtures/blu-platform.mjs` cover it; rig-verified on
   HB 2.4.1-beta.11 (registration, Heating feature, setpoint/mode writes).
+- **Battery on the PARTS, never the bridged parent** (#19, verified in Apple
+  Home 2026-10-09 on HB 2.4.0 with a paired throwaway bridge): with the
+  PowerSource on the parent, Apple reads `batPercentRemaining` (the bridge log
+  shows the reads) but shows nothing for sensors and a placeholder 100 % on
+  thermostats; with a PowerSource on every part (Homebridge composes it and
+  advertises the PowerSource device type per part since 2.3.0) each accessory
+  shows the right level, while the device itself shows none. composeOne adds the
+  battery to every part; `batteryTargets`/`pushBattery` update every part (and
+  the parent of a shell kept at its old structure while a rotation is pending);
+  a cache with a parent battery is `restructured` and rotates pre-online.
+  Expected Apple behavior, not bugs: until Home has read a thermostat's own
+  battery (after pairing, or after a change) it shows ANOTHER accessory's
+  battery on it, then corrects itself; percentage changes are not pushed in
+  subscription reports (matter.js, homebridge#3958) and reach Home when it
+  re-reads (~3 min), while batChargeLevel (the low-battery warning) is
+  immediate. Release notes must carry the 0.10.0 Upgrade note (battery
+  devices are re-created once).
 - **Matter labels hold 32 characters**: a longer accessory displayName fails
   the registration (NodeLabel constraint), so composeOne truncates it.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
