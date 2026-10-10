@@ -275,6 +275,21 @@ device table. devices.json records per-channel `kinds` for the UI.
   re-reads (~3 min), while batChargeLevel (the low-battery warning) is
   immediate. Release notes must carry the 0.10.0 Upgrade note (battery
   devices are re-created once).
+- **Reachability** (#22): the vendored layer emits `offline` (Gen 2+: on a
+  WebSocket error; Gen 1 / UDP: on the hourly fetch) and `online`; after
+  `OFFLINE_GRACE_MS` (60 s = the layer's WebSocket retry interval, so one failed
+  retry never shows; `offlineGraceMs` field for tests) of offline the
+  platform sets `bridgedDeviceBasicInformation.reachable = false` on all the
+  device's accessories (Home: "No Response"), and back to true on `online` or a
+  (re)registration. Cache-registered shells whose device never connects get
+  the same timer at startup. Never for `sleepMode` / `sleeping` devices; BLU
+  devices re-emit their gateway's online/offline. Prod's log (4 days, 11 Gen 2+
+  devices) showed zero offline events, so routine idle-socket cycling does not
+  trigger it. Verified in Apple Home 2026-10-10 (HB 2.4.0, paired probe):
+  unreachable accessories show "No Response" within seconds, recover ~10 s
+  after `reachable` returns, the sleeping H&T stays normal.
+  `fixtures/reachability.mjs` covers it (fixture file hosts emit
+  `offline` at startup because their WebSocket fails - the suite resets that).
 - **Matter labels hold 32 characters**: a longer accessory displayName fails
   the registration (NodeLabel constraint), so composeOne truncates it.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close

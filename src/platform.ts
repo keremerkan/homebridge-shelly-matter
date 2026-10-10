@@ -47,6 +47,13 @@ interface KnownDevice {
 
 const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
+/**
+ * How long a device stays offline before its accessories show "No Response"
+ * in Home (#22). The protocol layer reports a Gen 2+ device offline when a
+ * WebSocket reconnect fails and retries every 60 s, so one failed retry
+ * recovers before the grace runs out.
+ */
+const OFFLINE_GRACE_MS = 60_000;
 /** How long a registration keeps waiting for the Matter server to come up. */
 const REGISTER_DEADLINE_MS = 80_000;
 const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination', 'gateway'] as const;
@@ -90,6 +97,11 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly hostRetryTimers = new Map<string, NodeJS.Timeout>();
   /** BLU devices by id (see blu.ts); their components are not in the protocol layer's device list. */
   private readonly bluDevices = new Map<string, BluDevice>();
+  /** Devices whose accessories are shown unreachable, and the grace timers that lead there. */
+  private readonly unreachable = new Set<string>();
+  private readonly offlineTimers = new Map<string, NodeJS.Timeout>();
+  /** OFFLINE_GRACE_MS (a field so tests can shorten it). */
+  offlineGraceMs = OFFLINE_GRACE_MS;
   private registrationQueue: Promise<void> = Promise.resolve();
   private readonly pendingUpdateAttach: { device: ShellyDevice; accessory: MatterAccessory }[] = [];
   private attachTimer?: NodeJS.Timeout;
@@ -381,6 +393,9 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
           }
         });
       }
+      // Registered from the cache: unreachable unless the device connects in
+      // time (sleeping battery devices are offline most of the time by design).
+      if (known?.sleeping !== true) this.scheduleUnreachable(deviceId);
     }
 
     // A device that registered before but has no cache shells now (cache
@@ -480,6 +495,30 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     }
   }
 
+  /**
+   * Shows a device's accessories as reachable or not: Home shows an
+   * unreachable bridged accessory as "No Response" instead of accepting
+   * changes that never reach the device (#22).
+   */
+  private setReachable(deviceId: string, reachable: boolean): void {
+    clearTimeout(this.offlineTimers.get(deviceId));
+    this.offlineTimers.delete(deviceId);
+    if (reachable !== this.unreachable.has(deviceId)) return;
+    if (reachable) this.unreachable.delete(deviceId);
+    else this.unreachable.add(deviceId);
+    if (reachable) this.log.info(`Shelly ${deviceId} is reachable again.`);
+    else this.log.warn(`Shelly ${deviceId} has been unreachable for ${Math.round(this.offlineGraceMs / 1000)}s - Home shows it as "No Response" until it is back.`);
+    for (const uuid of this.uuidsByDevice.get(deviceId) ?? []) {
+      this.matter.updateAccessoryState(uuid, 'bridgedDeviceBasicInformation', { reachable })
+        .catch((error: unknown) => this.log.debug(`Could not update the reachability of ${uuid}: ${getErrorMessage(error)}`));
+    }
+  }
+
+  private scheduleUnreachable(deviceId: string): void {
+    if (this.offlineTimers.has(deviceId) || this.unreachable.has(deviceId)) return;
+    this.offlineTimers.set(deviceId, setTimeout(() => this.setReachable(deviceId, false), this.offlineGraceMs));
+  }
+
   private stop(): void {
     this.stopped = true;
     if (this.saveTimer) {
@@ -494,7 +533,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
     }
     if (this.attachTimer) clearTimeout(this.attachTimer);
-    for (const timer of this.hostRetryTimers.values()) clearTimeout(timer);
+    for (const timer of [...this.hostRetryTimers.values(), ...this.offlineTimers.values()]) clearTimeout(timer);
     this.hostRetryTimers.clear();
     this.shelly?.destroy();
   }
@@ -851,7 +890,15 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     }
     this.scheduleUpdateAttach();
 
-    device.on('online', () => this.log.info(`Shelly ${device.id} is online.`));
-    device.on('offline', () => this.log.warn(`Shelly ${device.id} is offline.`));
+    // Connected (again): reachable. A registration starts reachable anyway.
+    this.setReachable(device.id, true);
+    device.on('online', () => {
+      this.log.info(`Shelly ${device.id} is online.`);
+      this.setReachable(device.id, true);
+    });
+    device.on('offline', () => {
+      this.log.warn(`Shelly ${device.id} is offline.`);
+      if (!device.sleepMode) this.scheduleUnreachable(device.id);
+    });
   }
 }

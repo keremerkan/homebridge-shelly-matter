@@ -60,6 +60,9 @@ export class BluDevice extends EventEmitter {
     this.id = `shellyblu-${this.mac}`;
     this.log = gateway.log;
     this.shelly = gateway.shelly;
+    // Reachable through the gateway only.
+    gateway.on('online', () => this.emit('online'));
+    gateway.on('offline', () => this.emit('offline'));
   }
 
   getComponent(id: string): ShellyComponent | undefined {
