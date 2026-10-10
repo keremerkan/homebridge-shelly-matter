@@ -288,6 +288,14 @@ device table. devices.json records per-channel `kinds` for the UI.
   trigger it. Verified in Apple Home 2026-10-10 (HB 2.4.0, paired probe):
   unreachable accessories show "No Response" within seconds, recover ~10 s
   after `reachable` returns, the sleeping H&T stays normal.
+  Commands for a device with no live object FAIL (`resolve` throws at the
+  start of the handler; Homebridge runs handlers before it updates Matter
+  state, so the state stays and Home reports the failure) and mark it
+  unreachable at once (`platform.markUnreachable`, no grace). NOT for
+  thermostat handlers: Homebridge runs them in a matter.js reactor after the
+  write is accepted, so a throw cannot reject it and only logs "Unhandled
+  [failure] Error in reactor" - they use the non-throwing `lookup` (rig-checked
+  2026-10-10). Never throw in a deferred callback (color `send`).
   `fixtures/reachability.mjs` covers it (fixture file hosts emit
   `offline` at startup because their WebSocket fails - the suite resets that).
 - **Matter labels hold 32 characters**: a longer accessory displayName fails

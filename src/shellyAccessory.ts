@@ -519,10 +519,25 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
   }
   // Sensors, meters and buttons accept no commands: no handlers.
   if (isSensorKind(kind) || kind === 'meter' || kind === 'button') return undefined;
-  const resolve = (action: string): ShellyComponent | undefined => {
+  /**
+   * The live component, or the command FAILS: a command for a device that is
+   * not connected must not look done in Home (#22). Homebridge runs the
+   * handler before it updates Matter state, so a throw leaves the state as it
+   * was and reports the failure; the device is shown unreachable right away.
+   * Called synchronously at the start of each handler, never in a deferred
+   * callback (a throw there would be uncaught).
+   */
+  const lookup = (action: string): ShellyComponent | undefined => {
     const component = platform.shellyComponent(deviceId, componentId);
-    if (!component) platform.log.warn(`Shelly ${deviceId} is not connected - cannot ${action} ${componentId}.`);
-    return component;
+    if (component) return component;
+    platform.log.warn(`Shelly ${deviceId} is not connected - cannot ${action} ${componentId}.`);
+    platform.markUnreachable(deviceId);
+    return undefined;
+  };
+  const resolve = (action: string): ShellyComponent => {
+    const component = lookup(action);
+    if (component) return component;
+    throw new Error(`Shelly ${deviceId} is not connected`);
   };
 
   if (kind === 'thermostat') {
@@ -530,8 +545,11 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     // reports pushed by the plugin - so only a value the TRV does not have yet
     // is sent. The TRV has no off: Off sets its frost-protection minimum and
     // Heat restores the setpoint it had.
+    // Thermostat handlers run in a matter.js reactor AFTER the attribute write
+    // was accepted: a throw cannot reject it (only logs an unhandled reactor
+    // error), so a missing device is just shown unreachable.
     const trv = () => {
-      const component = resolve('set the temperature of');
+      const component = lookup('set the temperature of');
       return component?.name === 'BluTrv' ? component : undefined;
     };
     const targetOf = (component: ShellyComponent): number | undefined => {
@@ -618,21 +636,22 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
       scheduled = true;
       setImmediate(() => {
         scheduled = false;
-        const component = resolve('set the color of');
+        // The handler already checked the connection.
+        const component = platform.shellyComponent(deviceId, componentId);
         if (!isLightComponent(component)) return;
         setLightColor(component, target.rgb, target.white);
         void platform.matter.updateAccessoryState(uuid, 'colorControl', target.state, partId);
       });
     };
     const hueSat = (change: { hue?: number; saturation?: number }): void => {
-      const component = platform.shellyComponent(deviceId, componentId);
-      const next = { ...((component && knownHueSat.get(component)) ?? { hue: 0, saturation: 254 }), ...change };
-      if (component) knownHueSat.set(component, next);
+      const component = resolve('set the color of');
+      const next = { ...(knownHueSat.get(component) ?? { hue: 0, saturation: 254 }), ...change };
+      knownHueSat.set(component, next);
       send(hueSatToRgb(next.hue, next.saturation), { currentHue: Math.round(next.hue), currentSaturation: Math.round(next.saturation) });
     };
     const colorTemp = (mireds: number): void => {
       const state = { colorTemperatureMireds: mireds };
-      if (platform.shellyComponent(deviceId, componentId)?.name === 'Rgbw') {
+      if (resolve('set the color of').name === 'Rgbw') {
         const { rgb, white } = miredsToRgbw(mireds);
         send(rgb, state, white);
       } else send(miredsToRgb(mireds), state, 0);
@@ -641,7 +660,10 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
       moveToHueAndSaturationLogic: ((request: { hue: number; saturation: number }) => hueSat({ hue: request.hue, saturation: request.saturation })) as never,
       moveToHueLogic: ((request: { targetHue: number; isEnhancedHue?: boolean }) => hueSat({ hue: request.isEnhancedHue ? (request.targetHue / 65535) * 254 : request.targetHue })) as never,
       moveToSaturationLogic: ((request: { targetSaturation: number }) => hueSat({ saturation: request.targetSaturation })) as never,
-      moveToColorLogic: ((request: { targetX: number; targetY: number }) => send(xyToRgb(request.targetX, request.targetY), { currentX: request.targetX, currentY: request.targetY })) as never,
+      moveToColorLogic: ((request: { targetX: number; targetY: number }) => {
+        resolve('set the color of');
+        send(xyToRgb(request.targetX, request.targetY), { currentX: request.targetX, currentY: request.targetY });
+      }) as never,
       moveToColorTemperatureLogic: ((request: { colorTemperatureMireds: number }) => colorTemp(request.colorTemperatureMireds)) as never,
       // matter.js calls this on every color-mode switch, and Homebridge throws
       // (crashing the child bridge) without a handler. The Shelly runs its own

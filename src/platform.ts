@@ -507,11 +507,16 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     if (reachable) this.unreachable.delete(deviceId);
     else this.unreachable.add(deviceId);
     if (reachable) this.log.info(`Shelly ${deviceId} is reachable again.`);
-    else this.log.warn(`Shelly ${deviceId} has been unreachable for ${Math.round(this.offlineGraceMs / 1000)}s - Home shows it as "No Response" until it is back.`);
+    else this.log.warn(`Shelly ${deviceId} is unreachable - Home shows it as "No Response" until it is back.`);
     for (const uuid of this.uuidsByDevice.get(deviceId) ?? []) {
       this.matter.updateAccessoryState(uuid, 'bridgedDeviceBasicInformation', { reachable })
         .catch((error: unknown) => this.log.debug(`Could not update the reachability of ${uuid}: ${getErrorMessage(error)}`));
     }
+  }
+
+  /** A command just failed because the device is not connected: unreachable now, no grace. */
+  markUnreachable(deviceId: string): void {
+    this.setReachable(deviceId, false);
   }
 
   private scheduleUnreachable(deviceId: string): void {
