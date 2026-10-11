@@ -53,8 +53,8 @@ Matter on and HAP off.
   tiles) is a separate feature that requires a connected electricity
   account, currently offered with participating US utilities only; no
   accessory, bridged or direct, gets it without one.
-- **A device the plugin cannot reach shows "No Response".** After a minute
-  without contact, its accessories show "No Response" until it is back, so a
+- **A device the plugin cannot reach shows "No Response".** After 90 seconds
+  without contact (about 2 minutes after a device loses power), its accessories show "No Response" until it is back, so a
   change in Home never looks done when it did not reach the device. Battery
   devices that sleep between reports are exempt (that is normal for them).
 - **Battery level is shown on a device's accessories, not on the device.**

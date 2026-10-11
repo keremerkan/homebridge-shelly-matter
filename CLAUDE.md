@@ -275,10 +275,17 @@ device table. devices.json records per-channel `kinds` for the UI.
   re-reads (~3 min), while batChargeLevel (the low-battery warning) is
   immediate. Release notes must carry the 0.10.0 Upgrade note (battery
   devices are re-created once).
-- **Reachability** (#22): the vendored layer emits `offline` (Gen 2+: on a
-  WebSocket error; Gen 1 / UDP: on the hourly fetch) and `online`; after
-  `OFFLINE_GRACE_MS` (60 s = the layer's WebSocket retry interval, so one failed
-  retry never shows; `offlineGraceMs` field for tests) of offline the
+- **Reachability** (#22): two signals start the grace. (1) The vendored
+  layer's `offline` (Gen 2+: a WebSocket reconnect that FAILS; Gen 1 / UDP:
+  the hourly fetch). (2) `watchWebSocket`: a WebSocket `close` - a device that
+  loses power never errors: the socket closes on an unanswered ping (30-60 s)
+  and the reconnect HANGS (silent host), so `offline` may never fire
+  (rig-reproduced 2026-10-11 with `fixtures/rig/fake-shelly.mjs` frozen by
+  SIGSTOP; tomo's unplugged RGBW PM). Any sign of life (`open`, `response`,
+  `update`, `event`, or `online`) ends it; a gateway's socket covers its BLU
+  devices. After `OFFLINE_GRACE_MS` (90 s: the layer reconnects every 60 s, so a
+  routine close-and-reconnect always ends inside it; `offlineGraceMs` field
+  for tests) the
   platform sets `bridgedDeviceBasicInformation.reachable = false` on all the
   device's accessories (Home: "No Response"), and back to true on `online` or a
   (re)registration. Cache-registered shells whose device never connects get

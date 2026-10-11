@@ -49,11 +49,11 @@ const HOST_RETRY_MS = 60_000;
 const ATTACH_SETTLE_MS = 1000;
 /**
  * How long a device stays offline before its accessories show "No Response"
- * in Home (#22). The protocol layer reports a Gen 2+ device offline when a
- * WebSocket reconnect fails and retries every 60 s, so one failed retry
- * recovers before the grace runs out.
+ * in Home (#22). A Gen 2+ device that loses power is only noticed as a closed
+ * WebSocket (pong timeout); the protocol layer reconnects every 60 s, so a
+ * routine close-and-reconnect always ends inside the grace.
  */
-const OFFLINE_GRACE_MS = 60_000;
+const OFFLINE_GRACE_MS = 90_000;
 /** How long a registration keeps waiting for the Matter server to come up. */
 const REGISTER_DEADLINE_MS = 80_000;
 const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination', 'gateway'] as const;
@@ -458,6 +458,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.bluDevices.set(blu.id, blu);
         this.enqueue(`Failed to register BLU ${blu.id}`, () => this.registerDevice(blu as unknown as ShellyDevice));
       }
+      this.watchWebSocket(device);
     });
 
     // A CoIoT report from a host without a device object (a sleeping sensor
@@ -503,6 +504,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private setReachable(deviceId: string, reachable: boolean): void {
     clearTimeout(this.offlineTimers.get(deviceId));
     this.offlineTimers.delete(deviceId);
+    if (!this.uuidsByDevice.get(deviceId)?.length) return; // nothing exposed (a BLU gateway)
     if (reachable !== this.unreachable.has(deviceId)) return;
     if (reachable) this.unreachable.delete(deviceId);
     else this.unreachable.add(deviceId);
@@ -517,6 +519,26 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   /** A command just failed because the device is not connected: unreachable now, no grace. */
   markUnreachable(deviceId: string): void {
     this.setReachable(deviceId, false);
+  }
+
+  /**
+   * Gen 2+ over WebSocket: a device that loses power never reports offline -
+   * its socket just closes after an unanswered ping, and the reconnect hangs
+   * instead of failing. So a close starts the grace, and any sign of life (a
+   * reconnect, a response, a status update or event) ends it. Covers the BLU
+   * devices behind a gateway too.
+   */
+  private watchWebSocket(device: ShellyDevice): void {
+    const ws = device.wsClient;
+    if (!ws || device.sleepMode) return;
+    const ids = (): string[] => [device.id, ...[...this.bluDevices.values()].filter((blu) => blu.gateway === device).map((blu) => blu.id)];
+    ws.on('close', () => {
+      for (const id of ids()) this.scheduleUnreachable(id);
+    });
+    const alive = (): void => {
+      for (const id of ids()) this.setReachable(id, true);
+    };
+    for (const event of ['open', 'response', 'update', 'event'] as const) ws.on(event, alive);
   }
 
   private scheduleUnreachable(deviceId: string): void {
