@@ -534,10 +534,12 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     platform.markUnreachable(deviceId);
     return undefined;
   };
+  /** For a command: also checks right away that the device is there (platform.commandSent). */
   const resolve = (action: string): ShellyComponent => {
     const component = lookup(action);
-    if (component) return component;
-    throw new Error(`Shelly ${deviceId} is not connected`);
+    if (!component) throw new Error(`Shelly ${deviceId} is not connected`);
+    platform.commandSent(deviceId);
+    return component;
   };
 
   if (kind === 'thermostat') {
@@ -563,7 +565,10 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
           const component = trv();
           const celsius = request.occupiedHeatingSetpoint / 100;
           const current = component && targetOf(component);
-          if (component && (current === undefined || Math.abs(current - celsius) >= 0.05)) (component.device as unknown as BluDevice).setTrvTarget(celsius);
+          if (component && (current === undefined || Math.abs(current - celsius) >= 0.05)) {
+            (component.device as unknown as BluDevice).setTrvTarget(celsius);
+            platform.commandSent(deviceId);
+          }
         }) as never,
         systemModeChange: ((request: { systemMode: number }) => {
           const component = trv();
@@ -573,7 +578,11 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
           if (request.systemMode === SYSTEM_MODE_OFF && current > TRV_MIN_C) {
             heatTarget = current;
             blu.setTrvTarget(TRV_MIN_C);
-          } else if (request.systemMode === SYSTEM_MODE_HEAT && current <= TRV_MIN_C) blu.setTrvTarget(heatTarget);
+            platform.commandSent(deviceId);
+          } else if (request.systemMode === SYSTEM_MODE_HEAT && current <= TRV_MIN_C) {
+            blu.setTrvTarget(heatTarget);
+            platform.commandSent(deviceId);
+          }
         }) as never,
       },
     };

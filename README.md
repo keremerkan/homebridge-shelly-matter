@@ -53,10 +53,13 @@ Matter on and HAP off.
   tiles) is a separate feature that requires a connected electricity
   account, currently offered with participating US utilities only; no
   accessory, bridged or direct, gets it without one.
-- **A device the plugin cannot reach shows "No Response".** After 90 seconds
-  without contact (about 2 minutes after a device loses power), its accessories show "No Response" until it is back, so a
-  change in Home never looks done when it did not reach the device. Battery
-  devices that sleep between reports are exempt (that is normal for them).
+- **A device the plugin cannot reach shows "No Response".** About 2 minutes
+  after a device loses power, or within seconds when you use it in Home, its
+  accessories show "No Response" until it is back (within seconds to half a
+  minute), so a change in Home never looks done when it did not reach the
+  device. Apple Home only refreshes an accessory you are not using when you
+  open or use it. Battery devices that sleep between reports are exempt (that
+  is normal for them).
 - **Battery level is shown on a device's accessories, not on the device.**
   For a battery-powered device, such as an H&T, a Door/Window or a BLU TRV,
   Apple Home shows no battery level on the device itself, but each of its

@@ -54,6 +54,10 @@ const ATTACH_SETTLE_MS = 1000;
  * routine close-and-reconnect always ends inside the grace.
  */
 const OFFLINE_GRACE_MS = 90_000;
+/** How often a device without a WebSocket (RPC over UDP, Gen 1) is probed for reachability. */
+const PROBE_INTERVAL_MS = 30_000;
+/** A probe is a GET /shelly (no password needed, tiny); no answer within this means unreachable. */
+const PROBE_TIMEOUT_MS = 5_000;
 /** How long a registration keeps waiting for the Matter server to come up. */
 const REGISTER_DEADLINE_MS = 80_000;
 const OPTIONAL_DEVICE_FIELDS = ['generation', 'pendingRotation', 'sleeping', 'transport', 'udpDestination', 'gateway'] as const;
@@ -102,6 +106,12 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly offlineTimers = new Map<string, NodeJS.Timeout>();
   /** OFFLINE_GRACE_MS (a field so tests can shorten it). */
   offlineGraceMs = OFFLINE_GRACE_MS;
+  probeIntervalMs = PROBE_INTERVAL_MS;
+  /** Devices with a reachability probe in flight, and the periodic probes of devices without a WebSocket. */
+  private readonly probing = new Set<string>();
+  private readonly probeTimers = new Map<string, NodeJS.Timeout>();
+  /** Probes that bring an unreachable device back as soon as it answers. */
+  private readonly recoveryTimers = new Map<string, NodeJS.Timeout>();
   private registrationQueue: Promise<void> = Promise.resolve();
   private readonly pendingUpdateAttach: { device: ShellyDevice; accessory: MatterAccessory }[] = [];
   private attachTimer?: NodeJS.Timeout;
@@ -459,6 +469,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         this.enqueue(`Failed to register BLU ${blu.id}`, () => this.registerDevice(blu as unknown as ShellyDevice));
       }
       this.watchWebSocket(device);
+      this.watchByProbing(device.id);
     });
 
     // A CoIoT report from a host without a device object (a sleeping sensor
@@ -507,7 +518,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     if (!this.uuidsByDevice.get(deviceId)?.length) return; // nothing exposed (a BLU gateway)
     if (reachable !== this.unreachable.has(deviceId)) return;
     if (reachable) this.unreachable.delete(deviceId);
-    else this.unreachable.add(deviceId);
+    else {
+      this.unreachable.add(deviceId);
+      this.watchRecovery(deviceId);
+    }
     if (reachable) this.log.info(`Shelly ${deviceId} is reachable again.`);
     else this.log.warn(`Shelly ${deviceId} is unreachable - Home shows it as "No Response" until it is back.`);
     for (const uuid of this.uuidsByDevice.get(deviceId) ?? []) {
@@ -531,14 +545,92 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private watchWebSocket(device: ShellyDevice): void {
     const ws = device.wsClient;
     if (!ws || device.sleepMode) return;
-    const ids = (): string[] => [device.id, ...[...this.bluDevices.values()].filter((blu) => blu.gateway === device).map((blu) => blu.id)];
     ws.on('close', () => {
-      for (const id of ids()) this.scheduleUnreachable(id);
+      for (const id of this.idsBehind(device)) this.scheduleUnreachable(id);
     });
     const alive = (): void => {
-      for (const id of ids()) this.setReachable(id, true);
+      for (const id of this.idsBehind(device)) this.setReachable(id, true);
     };
     for (const event of ['open', 'response', 'update', 'event'] as const) ws.on(event, alive);
+  }
+
+  /** A device's own id plus the BLU devices it is the gateway for. */
+  private idsBehind(device: ShellyDevice): string[] {
+    return [device.id, ...[...this.bluDevices.values()].filter((blu) => blu.gateway === device).map((blu) => blu.id)];
+  }
+
+  /** Whether the device answers a GET /shelly. HTTPS devices are not probed: a certificate problem would look like an outage. */
+  async probe(device: ShellyDevice): Promise<boolean> {
+    if (device.port === 443 || device.host.endsWith('.json')) return true;
+    try {
+      return (await fetch(`http://${device.host}:${device.port}/shelly`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })).ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Probes a device (one probe at a time) and hands the result to `done`. */
+  private probeOnce(device: ShellyDevice, done: (reachable: boolean) => void): void {
+    if (this.probing.has(device.id)) return;
+    this.probing.add(device.id);
+    void this.probe(device)
+      .then(done)
+      .finally(() => this.probing.delete(device.id));
+  }
+
+  /**
+   * A command just went to a device: check that it is there, so a command
+   * sent to a device that lost power shows "No Response" at once instead of
+   * after the grace (#22). BLU commands go through their gateway.
+   */
+  commandSent(deviceId: string): void {
+    const device = this.shelly?.getDevice(deviceId) ?? this.bluDevices.get(deviceId)?.gateway;
+    if (!device) return;
+    this.probeOnce(device, (reachable) => {
+      if (!reachable) for (const id of this.idsBehind(device)) this.setReachable(id, false);
+    });
+  }
+
+  /**
+   * While a device is unreachable it is probed until it answers: a device
+   * that comes back over a WebSocket that never closed (it was only marked by
+   * a command probe) sends nothing on its own until its state changes.
+   */
+  private watchRecovery(deviceId: string): void {
+    if (this.recoveryTimers.has(deviceId)) return;
+    const timer = setInterval(() => {
+      if (!this.unreachable.has(deviceId)) {
+        clearInterval(timer);
+        this.recoveryTimers.delete(deviceId);
+        return;
+      }
+      const device = this.shelly?.getDevice(deviceId) ?? this.bluDevices.get(deviceId)?.gateway;
+      if (!device) return; // never connected: its registration marks it reachable
+      this.probeOnce(device, (reachable) => {
+        if (reachable) for (const id of this.idsBehind(device)) this.setReachable(id, true);
+      });
+    }, this.probeIntervalMs);
+    this.recoveryTimers.set(deviceId, timer);
+  }
+
+  /**
+   * Devices without a WebSocket (RPC over UDP, Gen 1 over CoIoT) give no sign
+   * when they lose power, so they are probed regularly: a failed probe starts
+   * the grace, an answer ends it. Sleeping devices are offline by design.
+   */
+  private watchByProbing(deviceId: string): void {
+    const device = this.shelly?.getDevice(deviceId);
+    if (!device || device.wsClient || device.sleepMode || this.probeTimers.has(deviceId)) return;
+    this.probeTimers.set(deviceId, setInterval(() => {
+      const current = this.shelly?.getDevice(deviceId);
+      if (!current) return;
+      this.probeOnce(current, (reachable) => {
+        for (const id of this.idsBehind(current)) {
+          if (reachable) this.setReachable(id, true);
+          else this.scheduleUnreachable(id);
+        }
+      });
+    }, this.probeIntervalMs));
   }
 
   private scheduleUnreachable(deviceId: string): void {
@@ -560,7 +652,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       }
     }
     if (this.attachTimer) clearTimeout(this.attachTimer);
-    for (const timer of [...this.hostRetryTimers.values(), ...this.offlineTimers.values()]) clearTimeout(timer);
+    for (const timer of [...this.hostRetryTimers.values(), ...this.offlineTimers.values(), ...this.probeTimers.values(), ...this.recoveryTimers.values()]) clearTimeout(timer);
     this.hostRetryTimers.clear();
     this.shelly?.destroy();
   }
