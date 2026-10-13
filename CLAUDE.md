@@ -284,7 +284,13 @@ device table. devices.json records per-channel `kinds` for the UI.
   unreachable device every 30 s until it answers - REQUIRED: a device marked
   by a command probe while its WebSocket stayed up sends nothing on its own
   (ping replies are not events), so without it an idle device stayed "No
-  Response" (rig-caught 2026-10-12). Plus the two grace signals: (1) The vendored
+  Response" (rig-caught 2026-10-12). A device that turns reachable again is
+  re-read (`refreshState`: `fetchUpdate`, BLU: the gateway) and its state
+  pushed (`pushStateOf` -> pushCurrentState), and every WebSocket `response`
+  (the full status each (re)connect brings, which the vendored layer only
+  notes) is applied via `device.onUpdate` and pushed - so Home drops what it
+  assumed while the device was away (#22; rig: on=true assumed -> off after
+  recovery). Plus the two grace signals: (1) The vendored
   layer's `offline` (Gen 2+: a WebSocket reconnect that FAILS; Gen 1 / UDP:
   the hourly fetch). (2) `watchWebSocket`: a WebSocket `close` - a device that
   loses power never errors: the socket closes on an unanswered ping (30-60 s)

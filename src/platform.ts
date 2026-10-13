@@ -112,6 +112,8 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
   private readonly probeTimers = new Map<string, NodeJS.Timeout>();
   /** Probes that bring an unreachable device back as soon as it answers. */
   private readonly recoveryTimers = new Map<string, NodeJS.Timeout>();
+  /** Devices being re-read after coming back. */
+  private readonly refreshing = new Set<string>();
   private registrationQueue: Promise<void> = Promise.resolve();
   private readonly pendingUpdateAttach: { device: ShellyDevice; accessory: MatterAccessory }[] = [];
   private attachTimer?: NodeJS.Timeout;
@@ -517,8 +519,10 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
     this.offlineTimers.delete(deviceId);
     if (!this.uuidsByDevice.get(deviceId)?.length) return; // nothing exposed (a BLU gateway)
     if (reachable !== this.unreachable.has(deviceId)) return;
-    if (reachable) this.unreachable.delete(deviceId);
-    else {
+    if (reachable) {
+      this.unreachable.delete(deviceId);
+      this.refreshState(deviceId);
+    } else {
       this.unreachable.add(deviceId);
       this.watchRecovery(deviceId);
     }
@@ -552,6 +556,41 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
       for (const id of this.idsBehind(device)) this.setReachable(id, true);
     };
     for (const event of ['open', 'response', 'update', 'event'] as const) ws.on(event, alive);
+    // Every (re)connect asks the device for its full status; the protocol
+    // layer only notes the answer, so apply it and show it in Home - whatever
+    // Home assumed while the device was away is replaced by its real state.
+    ws.on('response', (status: unknown) => {
+      if (status !== null && typeof status === 'object') device.onUpdate(status as Parameters<ShellyDevice['onUpdate']>[0]);
+      this.pushStateOf(device);
+    });
+  }
+
+  /** Pushes a device's current state (and that of the BLU devices behind it) into all its registered accessories. */
+  private pushStateOf(device: ShellyDevice): void {
+    for (const id of this.idsBehind(device)) {
+      const owner = id === device.id ? device : (this.bluDevices.get(id) as unknown as ShellyDevice | undefined);
+      if (!owner) continue;
+      for (const uuid of this.uuidsByDevice.get(id) ?? []) {
+        const accessory = this.matterAccessories.get(uuid);
+        if (accessory) pushCurrentState(this, owner, accessory);
+      }
+    }
+  }
+
+  /**
+   * A device that is reachable again is read anew and its real state shown in
+   * Home (#22): a change Home sent while it was unreachable never reached it,
+   * and a device that lost power comes back in its own power-on state.
+   */
+  private refreshState(deviceId: string): void {
+    const device = this.shelly?.getDevice(deviceId) ?? this.bluDevices.get(deviceId)?.gateway;
+    if (!device || device.sleepMode || this.refreshing.has(device.id)) return;
+    this.refreshing.add(device.id);
+    device
+      .fetchUpdate()
+      .then(() => this.pushStateOf(device))
+      .catch((error: unknown) => this.log.debug(`Could not re-read Shelly ${device.id}: ${getErrorMessage(error)}`))
+      .finally(() => this.refreshing.delete(device.id));
   }
 
   /** A device's own id plus the BLU devices it is the gateway for. */
