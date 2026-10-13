@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Some accessories are re-created once, on the first restart after updating: they reappear in Apple Home's default room, so move them back to their rooms (and check automations that use them). Which ones:
 
-- **Battery-powered sensors** (H&T, Flood, Door/Window 2 and Smoke, plus the Plus H&T, H&T Gen3, Flood Gen4 and Plus Smoke): their battery level moves to their accessories so Apple Home can show it.
+- **Battery-powered sensors** (H&T, Flood, Door/Window 2 and Smoke, plus the Plus H&T, H&T Gen3, Flood Gen4 and Plus Smoke): their battery level is now reported on their accessories, where Apple Home shows it.
 - **Energy meters with a relay** (Pro EM-50, EM Gen4, Gen 1 EM / 3EM): each clamp becomes its own channel.
 - **Power strips whose type was never chosen**: their sockets become outlets.
 - **Devices with Plus Add-on probes** on a single relay or light: the probes move to their own "Sensors" accessory. A Plus i4 that showed add-on sensors is re-created too.
