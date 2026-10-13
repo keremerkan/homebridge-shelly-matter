@@ -268,6 +268,14 @@ device table. devices.json records per-channel `kinds` for the UI.
   battery to every part; `batteryTargets`/`pushBattery` update every part (and
   the parent of a shell kept at its old structure while a rotation is pending);
   a cache with a parent battery is `restructured` and rotates pre-online.
+  Sources (`batterySourceOf`): `battery`/level (Gen 1, BLU) or
+  `devicepower:0`/battery.percent (Gen 2+: Plus H&T, H&T Gen3, Flood Gen4,
+  Plus Smoke; null on external power). A device devices.json records as
+  `sleeping` whose cache has no battery anywhere (0.9.1 never mapped
+  devicepower) is `restructured` too, so it rotates on the first restart
+  instead of a deferred one on the second (`fixtures/battery.mjs`;
+  `fixtures/battery-upgrade.mjs <0.9.1 dist>` runs the real 0.9.1 platform,
+  then this one).
   Expected Apple behavior, not bugs: until Home has read a thermostat's own
   battery (after pairing, or after a change) it shows ANOTHER accessory's
   battery on it, then corrects itself; percentage changes are not pushed in

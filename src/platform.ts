@@ -383,7 +383,7 @@ export class ShellyMatterPlatform implements DynamicPlatformPlugin {
         }
         continue;
       }
-      const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host, known?.generation ?? 0);
+      const reconciled = expectedShellsFromCache(this, deviceId, cachedList, host, known?.generation ?? 0, known?.sleeping === true);
       if (!reconciled) continue;
       const expected = reconciled.shells;
       this.generationByDevice.set(deviceId, reconciled.generation);

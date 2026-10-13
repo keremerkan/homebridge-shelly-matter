@@ -260,15 +260,29 @@ const powerSourceFragment = (level: ShellyDataType): ClusterState | undefined =>
     ? { batPercentRemaining: Math.round(level * 2), batChargeLevel: level <= BATTERY_CRITICAL_PCT ? 2 : level <= BATTERY_WARNING_PCT ? 1 : 0 }
     : undefined;
 
-/** Full PowerSource (Battery) state for the composed parent of a battery sensor. */
-const powerSourceClusterFor = (battery: ShellyComponent): ClusterState => ({
+/** Full PowerSource (Battery) state for the parts of a battery device. */
+const powerSourceClusterFor = (level: ShellyDataType): ClusterState => ({
   status: 1, // Active
   order: 0,
   description: 'Battery',
   batReplaceability: 1, // UserReplaceable
   batReplacementNeeded: false,
-  ...(powerSourceFragment(battery.getValue('level')) ?? { batChargeLevel: 0 }),
+  ...(powerSourceFragment(level) ?? { batChargeLevel: 0 }),
 });
+
+/**
+ * Where a device reports its battery: Gen 1 and BLU as `battery.level`, Gen 2+
+ * as `devicepower:0.battery.percent` (null on external power).
+ */
+type BatterySource = { component: ShellyComponent; property: string; level: (value: ShellyDataType) => ShellyDataType };
+const batterySourceOf = (device: ShellyDevice | BluDevice): BatterySource | undefined => {
+  const battery = device.getComponent('battery');
+  if (battery) return { component: battery, property: 'level', level: (value) => value };
+  const power = device.getComponent('devicepower:0');
+  if (power?.hasProperty('battery')) return { component: power, property: 'battery', level: (value) => (isValidObject(value) ? (value as ShellyData).percent : undefined) };
+  return undefined;
+};
+const batteryLevel = (source: BatterySource): ShellyDataType => source.level(source.component.getValue(source.property));
 
 /** Applies a component's current property values (per its kind's map) onto a cluster snapshot. */
 function applySnapshot(clusters: Record<string, ClusterState>, component: ShellyComponent, token: PartToken, metering: boolean): Record<string, ClusterState> {
@@ -894,8 +908,8 @@ export function buildShellyAccessories(platform: ShellyMatterPlatform, device: S
   }));
   // Battery state (H&T, Flood, BLU, ...): a PowerSource cluster on the parts -
   // the core composes the Battery feature from these attributes.
-  const batteryComponent = device.getComponent('battery');
-  const battery = batteryComponent && all.some(({ kind }) => isSensorKind(kind) || kind === 'button' || kind === 'thermostat') ? powerSourceClusterFor(batteryComponent) : undefined;
+  const batterySource = batterySourceOf(device);
+  const battery = batterySource && all.some(({ kind }) => isSensorKind(kind) || kind === 'button' || kind === 'thermostat') ? powerSourceClusterFor(batteryLevel(batterySource)) : undefined;
   const template: AccessoryTemplate = { serialNumber: device.mac, manufacturer: 'Shelly', model: device.model, firmwareRevision: device.firmware };
   return composeAccessories(platform, device.id, platform.configHost(device), device.name, generation, all, actuatorIndexesOf(all), template, battery);
 }
@@ -998,7 +1012,7 @@ export const cachedGenerationOf = (cachedList: MatterAccessory[]): number =>
  * a rotation never lands on an identity used before the cache was lost.
  * Returns undefined for foreign/corrupt cache entries.
  */
-export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[], host?: string, minGeneration = 0): { shells: MatterAccessory[]; generation: number } | undefined {
+export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId: string, cachedList: MatterAccessory[], host?: string, minGeneration = 0, sleeping = false): { shells: MatterAccessory[]; generation: number } | undefined {
   const entry = configForDevice(platform.config, deviceId, host);
   const metering = powerMeteringEnabled(entry);
 
@@ -1043,10 +1057,16 @@ export function expectedShellsFromCache(platform: ShellyMatterPlatform, deviceId
   reshapeClampOnRelay(components, carriedById, clampOnRelayEnabled(entry));
 
   const shell = template;
-  const powerSource = batteryOf(shell);
+  let powerSource = batteryOf(shell);
   // A battery on the parent (registered before it moved to the parts) is a
   // structural change: it rotates pre-online like metering off.
   if (cachedList.some((cached) => accessoryPowerSource(cached) !== undefined)) restructured = true;
+  // So is a sleeping (battery) device cached without one: Gen 2+ battery
+  // levels (devicepower) were not mapped before 0.10.
+  if (!powerSource && sleeping) {
+    powerSource = powerSourceClusterFor(undefined);
+    restructured = true;
+  }
   const buildAt = (generation: number): MatterAccessory[] =>
     composeAccessories(
       platform,
@@ -1159,7 +1179,8 @@ export function pushCurrentState(platform: ShellyMatterPlatform, device: ShellyD
     push(clustersFor(component, token, metering));
     if (meter) push(meterClustersFor(meter, metering));
   }
-  pushBattery(platform, accessory, device.getComponent('battery')?.getValue('level'));
+  const batterySource = batterySourceOf(device);
+  if (batterySource) pushBattery(platform, accessory, batteryLevel(batterySource));
 }
 
 type Gesture = 'singlePress' | 'doublePress' | 'longPress';
@@ -1261,9 +1282,10 @@ export function attachComponentUpdates(platform: ShellyMatterPlatform, device: S
     if (meter) forward(meter, PROPERTY_MAPS.meter);
   }
 
-  if (batteryTargets(accessory).length > 0) {
-    device.getComponent('battery')?.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
-      if (property === 'level') pushBattery(platform, accessory, value);
+  const batterySource = batterySourceOf(device);
+  if (batterySource && batteryTargets(accessory).length > 0) {
+    batterySource.component.on('update', (_componentId: string, property: string, value: ShellyDataType) => {
+      if (property === batterySource.property) pushBattery(platform, accessory, batterySource.level(value));
     });
   }
 }
