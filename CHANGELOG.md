@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1-beta.1] - 2026-10-18
+
+### Fixed
+
+- Dimmable lights did not switch on when their brightness was set while they were off ([#24](https://github.com/keremerkan/homebridge-shelly-matter/issues/24)): the Shelly only received the new brightness and stayed off, while Home showed it on. This hit the light tile in the Homebridge UI, which turns a light on by setting its brightness, and any controller that does the same. The brightness and the on state now go to the Shelly together (off when the brightness is set to the minimum).
+- Apple Home showed a dimmer's brightness 1 % lower than the Shelly in some cases (1 % for 2 %), because it rounds down; the brightness is now passed so that Home shows the Shelly's value.
+
 ## [0.10.0] - 2026-10-13
 
 ### Upgrade note

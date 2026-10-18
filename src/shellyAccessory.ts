@@ -65,7 +65,9 @@ const OPERATIONAL_STOPPED = { global: 0, lift: 0 };
 const LIFT_CONFIG_STATUS = { operational: true, onlineReserved: false, liftMovementReversed: false, liftPositionAware: true, tiltPositionAware: false, liftEncoderControlled: false, tiltEncoderControlled: false };
 
 // Shelly brightness is 1-100; Matter LevelControl (Lighting) levels are 1-254.
-const levelFromBrightness = (brightness: number): number => Math.max(1, Math.round((brightness * 254) / 100));
+// Rounded UP: Apple Home rounds a level DOWN to its percentage (level 5 = 1 %
+// for a Shelly at 2 %, #24), and the nearest level is often just below it.
+const levelFromBrightness = (brightness: number): number => Math.max(1, Math.ceil((brightness * 254) / 100));
 
 /**
  * The RGB(W) mix last written for a color temperature, per light. The device
@@ -84,6 +86,19 @@ const knownHueSat = new WeakMap<ShellyComponent, { hue: number; saturation: numb
  * sent as its own mix; without it an RGBW color moves its white part to the
  * white channel.
  */
+/**
+ * Brightness plus on in ONE request (the vendored Level only sets the
+ * brightness, which leaves an off light off; Level then On would flash the
+ * old brightness). Gen 1: `light/0?turn=on&brightness=`, Gen 2+: `<Light|RGB|RGBW>.Set`.
+ */
+function turnOnAtLevel(component: ShellyComponent, brightness: number): void {
+  const { device } = component;
+  const [method, params] = device.gen === 1
+    ? [`${component.id.slice(0, component.id.indexOf(':'))}/${component.index}`, { turn: 'on', brightness }]
+    : [`${component.name === 'Light' ? 'Light' : component.name.toUpperCase()}.Set`, { id: component.index, on: true, brightness }];
+  void shellyFetch(device.shelly, device.log, device.host, device.port, method, params);
+}
+
 function setLightColor(component: ShellyComponent, color: Rgb, colorTempWhite?: number): void {
   const { rgb, white } = colorTempWhite !== undefined || component.name !== 'Rgbw' ? { rgb: color, white: colorTempWhite ?? 0 } : rgbToRgbw(color);
   if (colorTempWhite !== undefined) colorTempWrites.set(component, { rgb: JSON.stringify(rgb), white });
@@ -634,12 +649,22 @@ function handlersFor(platform: ShellyMatterPlatform, uuid: string, deviceId: str
     },
   };
   if (kind === 'dimmer' || kind === 'color') {
-    // The LevelControl behavior updates Matter state itself after the handler.
-    const setLevel = (request: { level: number }): void => {
+    // The LevelControl behavior updates Matter state itself after the handler,
+    // including the on/off of a WithOnOff command (matter.js couples them:
+    // on above the minimum level, off at it) - without calling the onOff
+    // handler, so the Shelly is switched here (the Homebridge UI tile turns a
+    // light on this way, #24).
+    const setLevel = (request: { level: number }, withOnOff = false): void => {
       const component = resolve('dim');
-      if (isLightComponent(component)) component.Level(brightnessFromLevel(request.level));
+      if (!isLightComponent(component)) return;
+      if (!withOnOff) component.Level(brightnessFromLevel(request.level));
+      else if (request.level <= 1) component.Off();
+      else turnOnAtLevel(component, brightnessFromLevel(request.level));
     };
-    handlers.levelControl = { moveToLevel: setLevel as never, moveToLevelWithOnOff: setLevel as never };
+    handlers.levelControl = {
+      moveToLevel: ((request: { level: number }) => setLevel(request)) as never,
+      moveToLevelWithOnOff: ((request: { level: number }) => setLevel(request, true)) as never,
+    };
   }
   if (kind === 'color') {
     // matter.js runs a hue/saturation command as hue, then saturation, and

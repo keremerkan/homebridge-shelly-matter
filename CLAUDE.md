@@ -328,6 +328,16 @@ device table. devices.json records per-channel `kinds` for the UI.
   2026-10-10). Never throw in a deferred callback (color `send`).
   `fixtures/reachability.mjs` covers it (fixture file hosts emit
   `offline` at startup because their WebSocket fails - the suite resets that).
+- **Dimmer level commands** (#24): Homebridge runs `moveToLevelWithOnOff`'s
+  handler, then matter.js couples OnOff (on above the minimum level, off at
+  it) WITHOUT calling the onOff handler, so the handler switches the Shelly
+  itself: on + brightness in one request (`turnOnAtLevel`), Off at level 1.
+  The Homebridge UI's light tile turns a light on with exactly this command
+  (level, then an `on` that Homebridge rejects with "Cannot lock ... onOff.state
+  synchronously" because the two overlap - a Homebridge issue, harmless once
+  the level command switches the Shelly). Brightness -> level rounds UP: Apple
+  Home rounds a level down to its percentage. `fixtures/dimmer.mjs`;
+  `fixtures/rig/ui-trigger.mjs` replays UI control requests over IPC.
 - **Matter labels hold 32 characters**: a longer accessory displayName fails
   the registration (NodeLabel constraint), so composeOne truncates it.
 - **WebSocket transport logs at warn** unless `debug`: Gen2+ Shellys close
