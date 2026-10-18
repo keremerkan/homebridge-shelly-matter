@@ -90,6 +90,9 @@ one confirmation moves it to tested.
   and live state updates from the wall switch over CoIoT (see the Gen 1 note below).
   Gen 1 power metering (1PM, 2.5, Plug S, Dimmer 2, EM/3EM meters) is mapped as of 0.8.0 -
   note that Gen 1 relay/dimmer energy counters reset when the device reboots (device behavior).
+- **Shelly Pro Dimmer 1PM and Dimmer Gen4** — confirmed by field testing,
+  [#24](https://github.com/keremerkan/homebridge-shelly-matter/issues/24): on/off, brightness
+  and power metering.
 - **Shelly 2.5 in roller mode** — confirmed by field testing,
   [#11](https://github.com/keremerkan/homebridge-shelly-matter/issues/11): open/close/stop,
   target position, position and movement state, power metering.
@@ -129,7 +132,7 @@ one confirmation moves it to tested.
 
 - **Other covers / rollers** (2PM in cover profile, Plus Shutter): same cover mapping as the
   confirmed Shelly 2.5 in roller mode, but no hardware confirmation yet.
-- **Gen 2+ dimmers** (Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer):
+- **Other Gen 2+ dimmers** (Plus Wall Dimmer, 0-10V Dimmer, Dimmer Gen3, Pro Dimmer 2PM):
   on/off and brightness.
 - **Other Gen 1 models** (1L, 1PM, 2, 4Pro, Gen 1 plugs): same protocol paths as the
   tested Gen 1 devices, but no hardware confirmation yet.
@@ -176,6 +179,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Shelly Pro 2PM (switch profile) | `shellypro2pm` | 2× light / outlet / switch + power/energy | ✅ |
 | Shelly Pro 4PM | `shellypro4pm` | 4× light / outlet / switch + power/energy | ✅ [#2](https://github.com/keremerkan/homebridge-shelly-matter/issues/2) |
 | Shelly Dimmer 2 | `shellydimmer2` | dimmable light + power/energy | ✅ [#4](https://github.com/keremerkan/homebridge-shelly-matter/issues/4) |
+| Shelly Pro Dimmer 1PM, Shelly Dimmer Gen4 | `shellyprodm1pm`, `shellydimmerg4` | dimmable light + power/energy | ✅ [#24](https://github.com/keremerkan/homebridge-shelly-matter/issues/24) |
 | Shelly H&T (SHHT-1) | `shellyht` | temperature + humidity + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly Flood (SHWT-1) | `shellyflood` | water leak + temperature + battery | ✅ [#6](https://github.com/keremerkan/homebridge-shelly-matter/issues/6) |
 | Shelly 2.5 (relay mode) | `shellyswitch25` | 2× light / outlet / switch | ✅ [#8](https://github.com/keremerkan/homebridge-shelly-matter/issues/8) |
@@ -183,7 +187,7 @@ tester · 🟡 implemented, awaiting a hardware confirmation · ⏳ planned, [as
 | Other Gen 1 relays/plugs (1L, 1PM, 2, 4Pro, Plug, Plug S) | `shelly1l`, `shelly1pm`, `shellyplug` … | light / outlet / switch + power/energy where the device meters | 🟡 |
 | Gen 2+ relays (Plus 1PM, Plus 2PM switch, Pro 1/1PM/2/3, Minis, Gen3/Gen4 models, outdoor plugs) | `shellyplus1pm`, `shellyplus2pm`, `shellypro1pm`, `shellypro3`, `shelly1g3`, `shelly1mini`, `shellyplugsg3` … | light / outlet / switch + power/energy where measured | 🟡 |
 | Other covers / rollers (Plus/Pro 2PM cover profile, Pro Dual Cover, Shutter) | `shellyplus2pm`, `shellypro2cover`, `shellyshutter` … | window covering + power/energy where measured | 🟡 |
-| Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Pro Dimmers, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellyprodm1pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
+| Other dimmers (Dimmer 1, Plus Wall Dimmer, 0-10V/DALI dimmers, Dimmer Gen3, Pro Dimmer 2PM, Duo, Vintage) | `shellydimmer`, `shellypluswdus`, `shellyplus010v`, `shellyddimmerg3`, `shellydimmerg3`, `shellyprodm2pm`, `shellybulbduo`, `shellyvintage` … | dimmable light | 🟡 |
 | Newer H&T / Flood generations (Plus H&T, H&T Gen3, Flood Gen4) | `shellyplusht`, `shellyhtg3`, `shellyfloodg4` | temperature + humidity / water leak + battery | 🟡 |
 | Shelly Door/Window 2 | `shellydw2` | contact + light level + temperature + battery (vibration as motion, opt-in) | ✅ [#10](https://github.com/keremerkan/homebridge-shelly-matter/issues/10) |
 | Shelly Door/Window 1 | `shellydw` | contact + light level + battery (vibration as motion, opt-in) | 🟡 |

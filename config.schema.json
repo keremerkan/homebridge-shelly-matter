@@ -45,7 +45,7 @@
               "type": "string"
             },
             "accessoryType": {
-              "title": "Accessory type (empty = default: outlet for plugs, light otherwise)",
+              "title": "Accessory type for relays and meters (empty = default: outlet for plugs, light otherwise; covers and dimmers have a fixed type)",
               "type": "string",
               "oneOf": [
                 {
@@ -139,7 +139,7 @@
                     "type": "string"
                   },
                   "accessoryType": {
-                    "title": "Accessory type (empty = device setting)",
+                    "title": "Accessory type for a relay or meter channel (empty = device setting)",
                     "type": "string",
                     "oneOf": [
                       {
