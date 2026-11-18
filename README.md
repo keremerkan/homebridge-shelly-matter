@@ -40,16 +40,14 @@ Matter on and HAP off.
   app's **"Show As" → Light** on the outlet afterwards — the display override
   does not affect wattage (verified against certified hardware as well), and
   "Show As" is only offered on outlet-typed accessories in the first place.
-- **Apple's Energy view lists individual devices only for accessories paired
-  with Apple Home directly, not for accessories behind a bridge.** Bridged
-  accessories' consumption is counted in the whole-home total, but they are
-  not listed in the power breakdown, regardless of accessory type, reporting
-  shape, power topology or endpoint structure. Certification is not the
-  factor: an uncertified Shelly Gen4 paired directly is listed, and so is one
-  of our own plugs when exposed as a standalone uncertified Matter node,
-  while the same plug behind the bridge is not. Homebridge exposes every
-  plugin accessory behind its bridge, so this is an Apple limitation, not a
-  plugin gap (reported to Apple). The per-device usage history ("Usages"
+- **Before iOS 27.3, Apple's Energy view listed individual devices only for
+  accessories paired with Apple Home directly, not for accessories behind a
+  bridge.** Bridged accessories' consumption was counted in the whole-home
+  total, but they were not listed in the power breakdown, regardless of
+  accessory type, reporting shape, power topology or endpoint structure.
+  Homebridge exposes every plugin accessory behind its bridge, so this was an
+  Apple limitation, not a plugin gap. We reported it to Apple and it is fixed
+  in iOS 27.3 (since beta 2): update to list bridged devices. The per-device usage history ("Usages"
   tiles) is a separate feature that requires a connected electricity
   account, currently offered with participating US utilities only; no
   accessory, bridged or direct, gets it without one.

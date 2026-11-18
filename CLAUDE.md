@@ -377,9 +377,9 @@ device table. devices.json records per-channel `kinds` for the UI.
   standalone matter.js test nodes (test VID 0xFFF1) within minutes, while
   bridged devices are counted in the whole-home total but never listed
   (2026-07-25 elimination: not fixable by periodic energy, NodeTopology, or
-  Eve-parity dedicated sensor endpoints). Homebridge can only expose
-  accessories behind its aggregator, so per-device listing is unreachable
-  from a plugin. (2) The USAGES history tiles need a connected electricity
+  Eve-parity dedicated sensor endpoints). FIXED BY APPLE in iOS 27.3 beta 2
+  (FB24008327, user-verified and closed 2026-11-18): bridged accessories are
+  now listed; the gate only applies to iOS < 27.3. (2) The USAGES history tiles need a connected electricity
   account (US utilities only, 2026-09-22 conclusion): no accessory in a home
   without one gets a tile, not even certified Eve Energy, and a test node
   reproducing the Gen4's full cluster tree (matter-survey.org) plus its root
